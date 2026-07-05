@@ -11,4 +11,10 @@
          SubmarineTracker itself ships with - proven under Dalamud's loader. -->
     <PackageReference Include="System.Data.SQLite" Version="2.0.3" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Installer icon: DalamudPackager zips the build output, so the icon
+         must be copied there as images/icon.png. Same art as the site
+         favicon (frontend/src/assets/DakiMoney@112.png). -->
+    <None Include="images/icon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -4,6 +4,7 @@
   "Punchline": "Pushes your submarine voyages to subs.bnuuy.gg automatically.",
   "Description": "Captures submarine voyage results (route, loot, timings) as they happen and pushes them to your Bunny Sub Tracker account. Pair it with a plugin token from your Profile page, map your in-game free companies/submarines to their platform counterparts, then let it run. Command: /bunnysync",
   "ApplicableVersion": "any",
+  "IconUrl": "https://raw.githubusercontent.com/Juusohel/BunnySubSync/main/BunnySubSync/images/icon.png",
   "Tags": [
     "submarine",
     "tracker",

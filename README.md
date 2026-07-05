@@ -12,6 +12,24 @@ the website get completed in place.
    `https://raw.githubusercontent.com/Juusohel/BunnySubSync/main/repo.json`
 2. `/xlplugins` → search **Bunny Sub Sync** → install.
 
+## Getting started (website side, one time)
+
+The plugin pushes voyages into your existing account — it can't create
+submarines for you, so set the website up first:
+
+1. Create an account at [subs.bnuuy.gg](https://subs.bnuuy.gg) and log in.
+2. **Create your submarines**: Submarines → *Add Submarine*, one per in-game
+   sub, named **exactly as in game** — same-named subs pair automatically in
+   the plugin's Mapping tab. (You can also do this during mapping: the *copy
+   name* button gives you the exact in-game name to paste into the website.)
+3. **Running subs in more than one FC?** Enable Multi-FC Mode (Profile →
+   Multi-FC Mode), add each FC under Free Companies, and assign each
+   submarine to its FC. With a single FC you can skip all of this — the
+   plugin maps your subs to the account directly.
+
+Once paired (next section), voyages land under Deployments exactly like
+manual entries — dispatches as "at sea", collections with loot and timings.
+
 ## Pairing (one time)
 
 1. Log into [subs.bnuuy.gg](https://subs.bnuuy.gg) → **Profile** → *In-game
