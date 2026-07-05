@@ -57,6 +57,10 @@ public sealed class PushRow
     [JsonPropertyName("route")] public string Route { get; set; } = string.Empty;
     [JsonPropertyName("route_duration_minutes")] public int RouteDurationMinutes { get; set; }
     [JsonPropertyName("deployed_at")] public DateTimeOffset DeployedAt { get; set; }
+    // Set on Estimate & queue rows: deployed_at is back-computed from the
+    // collection, so the server keeps an existing row's stored dispatch time
+    // (real dispatch push from another computer, or a manual entry) over it.
+    [JsonPropertyName("deployed_at_estimated")] public bool DeployedAtEstimated { get; set; }
     [JsonPropertyName("collected_at")] public DateTimeOffset? CollectedAt { get; set; }
     [JsonPropertyName("ceruleum_tanks")] public int CeruleumTanks { get; set; }
     [JsonPropertyName("notes")] public string? Notes { get; set; }

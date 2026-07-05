@@ -206,7 +206,8 @@ public sealed class VoyageAssembler : IDisposable
             durationMinutes: (int)(durationSeconds / 60),
             sectors: entry.Sectors,
             loot: entry.PendingLoot,
-            notes: notes);
+            notes: notes,
+            deployedAtEstimated: true);
 
         journal.Update(entry, e =>
         {
@@ -230,7 +231,8 @@ public sealed class VoyageAssembler : IDisposable
         int durationMinutes,
         uint[] sectors,
         List<LootLine> loot,
-        string? notes)
+        string? notes,
+        bool deployedAtEstimated = false)
     {
         var deployedUnix = new DateTimeOffset(deployedAtUtc, TimeSpan.Zero).ToUnixTimeSeconds();
 
@@ -244,6 +246,7 @@ public sealed class VoyageAssembler : IDisposable
             Route = SectorMath.SectorsToRoute(sectors),
             RouteDurationMinutes = durationMinutes,
             DeployedAt = new DateTimeOffset(deployedAtUtc, TimeSpan.Zero),
+            DeployedAtEstimated = deployedAtEstimated,
             CollectedAt = collectedAtUtc is { } c ? new DateTimeOffset(c, TimeSpan.Zero) : null,
             CeruleumTanks = SectorMath.TankCost(sectors),
             Notes = notes,
