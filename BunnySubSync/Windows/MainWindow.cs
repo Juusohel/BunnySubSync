@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using BunnySubSync.Api;
@@ -38,6 +41,17 @@ public class MainWindow : Window, IDisposable
     private string? mappingMessage;
     private DateTime? lastAutoMatchAt;
 
+    // --- Backfill tab state --------------------------------------------------
+    private readonly BackfillService backfill;
+    private readonly FileDialogManager fileDialog = new();
+    private string backfillDbPath = BackfillService.DefaultDbPath();
+    private string backfillFrom = "";
+    private string backfillTo = "";
+    private BackfillService.ScanResult? backfillScan;
+    private string? backfillMessage;
+    private bool backfillMessageIsError;
+    private bool backfillBusy;
+
     // --- Simulator tab state -------------------------------------------------
     private sealed class SimLootLine
     {
@@ -59,9 +73,10 @@ public class MainWindow : Window, IDisposable
 
     public MainWindow(
         Plugin plugin, VoyageJournal journal, VoyageAssembler assembler, VoyageSimulator simulator,
-        SubSnapshotService snapshots, SyncService sync, Outbox outbox)
+        SubSnapshotService snapshots, SyncService sync, Outbox outbox, BackfillService backfill)
         : base("Bunny Sub Sync##BunnySubSyncMainWindow")
     {
+        this.backfill = backfill;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(480, 360),
@@ -83,6 +98,8 @@ public class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        fileDialog.Draw();
+
         using var tabBar = ImRaii.TabBar("BunnySubSyncTabs");
         if (!tabBar.Success)
             return;
@@ -103,6 +120,12 @@ public class MainWindow : Window, IDisposable
         {
             if (tab.Success)
                 DrawLogTab();
+        }
+
+        using (var tab = ImRaii.TabItem("Backfill"))
+        {
+            if (tab.Success)
+                DrawBackfillTab();
         }
 
         if (plugin.Configuration.DevMode)
@@ -607,6 +630,159 @@ public class MainWindow : Window, IDisposable
 
         ImGui.Text($"returns {DateTimeOffset.FromUnixTimeSeconds(entry.ScheduledReturnUnix).UtcDateTime:MM-dd HH:mm}"
                    + (entry.DispatchPushed ? " · on site" : ""));
+    }
+
+    // =========================================================================
+    // Backfill (G5: SubmarineTracker history → platform CSV)
+    // =========================================================================
+
+    private void DrawBackfillTab()
+    {
+        ImGui.Spacing();
+        ImGui.TextWrapped(
+            "Exports your SubmarineTracker voyage history as a CSV for the website's Import "
+            + "dialog. Voyages are matched through the Mapping tab, so map your FC(s) and subs "
+            + "first. Dispatch times are estimated (loot history only stores returns) — rows "
+            + "are stamped accordingly.");
+        ImGui.Spacing();
+
+        ImGui.SetNextItemWidth(420);
+        ImGui.InputText("##dbpath", ref backfillDbPath, 512);
+        ImGui.SameLine();
+        if (ImGui.Button("Pick DB…"))
+        {
+            fileDialog.OpenFileDialog("SubmarineTracker database", ".db", (ok, path) =>
+            {
+                if (ok && !string.IsNullOrEmpty(path))
+                    backfillDbPath = path;
+            });
+        }
+        if (!File.Exists(backfillDbPath))
+        {
+            using (ImRaii.PushColor(ImGuiCol.Text, WarnColor))
+                ImGui.TextWrapped("File not found — has SubmarineTracker run on this machine?");
+        }
+
+        ImGui.SetNextItemWidth(120);
+        ImGui.InputTextWithHint("##from", "from YYYY-MM-DD", ref backfillFrom, 10);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(120);
+        ImGui.InputTextWithHint("##to", "to YYYY-MM-DD", ref backfillTo, 10);
+        ImGui.SameLine();
+        using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+            ImGui.Text("(collection date, UTC; empty = everything)");
+
+        using (ImRaii.PushColor(ImGuiCol.Text, WarnColor))
+        {
+            ImGui.TextWrapped(
+                "Import may duplicate voyages you already entered manually with different "
+                + "timestamps (import dedup is exact-match). Pick a cutoff date before your "
+                + "platform history starts.");
+        }
+        ImGui.Spacing();
+
+        using (ImRaii.Disabled(backfillBusy))
+        {
+            if (ImGui.Button("Scan"))
+                RunBackfillScan();
+        }
+
+        if (backfillBusy)
+        {
+            ImGui.SameLine();
+            ImGui.Text("Scanning...");
+        }
+
+        if (backfillScan is { } scan)
+        {
+            ImGui.Spacing();
+            ImGui.Text($"{scan.TotalVoyages} voyage(s) found"
+                       + (scan.OldestUtc is { } o ? $" ({o:yyyy-MM-dd} → {scan.NewestUtc:yyyy-MM-dd})" : "")
+                       + $" — {scan.Mappable.Count} mappable, {scan.SkippedUnmapped} skipped (unmapped FC/sub).");
+
+            using (ImRaii.Disabled(scan.Mappable.Count == 0))
+            {
+                if (ImGui.Button("Export CSV…"))
+                {
+                    var rows = scan.Mappable;
+                    fileDialog.SaveFileDialog(
+                        "Save backfill CSV", ".csv", "bunnysub_backfill.csv", ".csv", (ok, path) =>
+                        {
+                            if (!ok)
+                                return;
+                            try
+                            {
+                                File.WriteAllText(path, BackfillService.BuildCsv(rows));
+                                backfillMessageIsError = false;
+                                backfillMessage = $"Wrote {rows.Count} voyage(s) to {path}. Upload it via the website's "
+                                                  + "Import dialog — preview first, and tick the backfill option there.";
+                            }
+                            catch (Exception ex)
+                            {
+                                backfillMessageIsError = true;
+                                backfillMessage = $"Write failed: {ex.Message}";
+                            }
+                        });
+                }
+            }
+        }
+
+        if (backfillMessage != null)
+        {
+            ImGui.Spacing();
+            using (ImRaii.PushColor(ImGuiCol.Text, backfillMessageIsError ? ErrorColor : SuccessColor))
+                ImGui.TextWrapped(backfillMessage);
+        }
+    }
+
+    private void RunBackfillScan()
+    {
+        if (!TryParseBackfillDate(backfillFrom, endOfDay: false, out var fromUtc)
+            || !TryParseBackfillDate(backfillTo, endOfDay: true, out var toUtc))
+        {
+            backfillMessageIsError = true;
+            backfillMessage = "Dates must be YYYY-MM-DD (or empty).";
+            return;
+        }
+
+        backfillBusy = true;
+        backfillMessage = null;
+        backfillScan = null;
+        var dbPath = backfillDbPath;
+
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                backfillScan = backfill.Scan(dbPath, fromUtc, toUtc);
+                backfillMessageIsError = false;
+            }
+            catch (Exception ex)
+            {
+                backfillMessageIsError = true;
+                backfillMessage = ex.Message;
+                Plugin.Log.Warning(ex, "Backfill scan failed");
+            }
+            finally
+            {
+                backfillBusy = false;
+            }
+        });
+    }
+
+    private static bool TryParseBackfillDate(string input, bool endOfDay, out DateTime? parsed)
+    {
+        parsed = null;
+        if (string.IsNullOrWhiteSpace(input))
+            return true;
+
+        if (!DateTime.TryParseExact(
+                input.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date))
+            return false;
+
+        parsed = endOfDay ? date.AddDays(1).AddSeconds(-1) : date;
+        return true;
     }
 
     // =========================================================================

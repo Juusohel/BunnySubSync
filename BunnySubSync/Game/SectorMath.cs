@@ -91,15 +91,22 @@ public static class SectorMath
     public static uint EstimateDurationSeconds(
         uint[] sectors, int rank, ushort hull, ushort stern, ushort bow, ushort bridge)
     {
-        if (sectors.Length is 0 or > 5)
-            return 0;
-
         var rankSheet = Plugin.DataManager.GetExcelSheet<SubmarineRank>();
         var partSheet = Plugin.DataManager.GetExcelSheet<SubmarinePart>();
 
         float speed = (rankSheet.TryGetRow((uint)rank, out var r) ? r.SpeedBonus : 0)
                       + PartSpeed(partSheet, hull) + PartSpeed(partSheet, stern)
                       + PartSpeed(partSheet, bow) + PartSpeed(partSheet, bridge);
+
+        return EstimateDurationSecondsAtSpeed(sectors, speed);
+    }
+
+    /// <summary>Duration for a route at a known speed — the backfill's
+    /// fallback path when the sub's build row is gone from the source DB.</summary>
+    public static uint EstimateDurationSecondsAtSpeed(uint[] sectors, float speed)
+    {
+        if (sectors.Length is 0 or > 5)
+            return 0;
 
         var start = ExplorationSheet.GetRow(FindVoyageStart(sectors[0]));
         var rows = sectors.Select(s => ExplorationSheet.GetRow(s)).ToArray();

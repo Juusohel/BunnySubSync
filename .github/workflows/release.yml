@@ -1,0 +1,35 @@
+name: Release
+
+# Tag a commit `v*` (e.g. v0.1.0) and push the tag — this builds Release,
+# and attaches the DalamudPackager zip to a GitHub Release. Then bump
+# AssemblyVersion in repo.json on main so Dalamud offers users the update.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud dev libs
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+          Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: BunnySubSync/bin/x64/Release/BunnySubSync/latest.zip
+          generate_release_notes: true

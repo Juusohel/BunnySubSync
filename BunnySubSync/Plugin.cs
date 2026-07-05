@@ -41,6 +41,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly VoyageSimulator voyageSimulator;
     private readonly SyncService syncService;
     private readonly Outbox outbox;
+    private readonly BackfillService backfillService;
 
     public Plugin()
     {
@@ -54,9 +55,11 @@ public sealed class Plugin : IDalamudPlugin
         voyageResultHook = new VoyageResultHook(voyageEvents);
         voyageSimulator = new VoyageSimulator(voyageEvents);
         syncService = new SyncService(Configuration);
+        backfillService = new BackfillService(Configuration, syncService);
 
         MainWindow = new MainWindow(
-            this, voyageJournal, voyageAssembler, voyageSimulator, subSnapshots, syncService, outbox);
+            this, voyageJournal, voyageAssembler, voyageSimulator, subSnapshots, syncService, outbox,
+            backfillService);
         WindowSystem.AddWindow(MainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
