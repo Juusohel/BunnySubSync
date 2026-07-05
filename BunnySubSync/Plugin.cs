@@ -3,6 +3,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using BunnySubSync.Game;
 using BunnySubSync.Windows;
 
 namespace BunnySubSync;
@@ -27,16 +28,32 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("Bunny Sub Sync");
     private MainWindow MainWindow { get; init; }
 
+    // G2 capture layer. Producers (snapshot service, result hook, simulator)
+    // emit onto VoyageEvents; the assembler + journal live below the seam.
+    private readonly VoyageEvents voyageEvents;
+    private readonly VoyageJournal voyageJournal;
+    private readonly SubSnapshotService subSnapshots;
+    private readonly VoyageResultHook voyageResultHook;
+    private readonly VoyageAssembler voyageAssembler;
+    private readonly VoyageSimulator voyageSimulator;
+
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
-        MainWindow = new MainWindow(this);
+        voyageEvents = new VoyageEvents();
+        voyageJournal = new VoyageJournal(PluginInterface.GetPluginConfigDirectory());
+        subSnapshots = new SubSnapshotService(voyageEvents);
+        voyageAssembler = new VoyageAssembler(voyageEvents, voyageJournal, subSnapshots);
+        voyageResultHook = new VoyageResultHook(voyageEvents);
+        voyageSimulator = new VoyageSimulator(voyageEvents);
+
+        MainWindow = new MainWindow(this, voyageJournal, voyageAssembler, voyageSimulator);
         WindowSystem.AddWindow(MainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the Bunny Sub Sync window."
+            HelpMessage = "Opens the Bunny Sub Sync window. Dev: /bunnysync sim dispatch|collect|collect-new"
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -51,10 +68,50 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         MainWindow.Dispose();
 
+        // Producers first (stop emitting), then the consumer.
+        voyageResultHook.Dispose();
+        subSnapshots.Dispose();
+        voyageAssembler.Dispose();
+
         CommandManager.RemoveHandler(CommandName);
     }
 
-    private void OnCommand(string command, string args) => MainWindow.Toggle();
+    private void OnCommand(string command, string args)
+    {
+        var trimmed = args.Trim();
+        if (trimmed.Length == 0)
+        {
+            MainWindow.Toggle();
+            return;
+        }
+
+        // /bunnysync sim … — quick re-runs of the Simulator tab's current
+        // inputs (dev-gated exactly like the tab itself).
+        var parts = trimmed.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+        if (parts[0] == "sim" && parts.Length > 1)
+        {
+            if (!Configuration.DevMode)
+            {
+                ChatGui.PrintError("[BunnySubSync] Simulator requires DevMode (config JSON).");
+                return;
+            }
+
+            var error = parts[1] switch
+            {
+                "dispatch" => MainWindow.RunSimDispatch(),
+                "collect" => MainWindow.RunSimCollect(forLastDispatch: true),
+                "collect-new" => MainWindow.RunSimCollect(forLastDispatch: false),
+                _ => $"Unknown sim action '{parts[1]}' (dispatch|collect|collect-new).",
+            };
+
+            ChatGui.Print(error == null
+                ? "[BunnySubSync] Simulated — see the Log tab."
+                : $"[BunnySubSync] {error}");
+            return;
+        }
+
+        MainWindow.Toggle();
+    }
 
     public void ToggleMainUi() => MainWindow.Toggle();
 }

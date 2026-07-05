@@ -35,6 +35,10 @@ public class Configuration : IPluginConfiguration
     public bool AutoPush { get; set; } = true;
     public bool ChatNotifications { get; set; } = true;
 
+    // Dev-only: shows the Simulator tab. Deliberately has no UI toggle — set
+    // it by hand in the config JSON so end users never wander in (plan §9 G2).
+    public bool DevMode { get; set; }
+
     // Key: in-game FC content id.
     public Dictionary<ulong, FcMapping> FcMappings { get; set; } = new();
 
