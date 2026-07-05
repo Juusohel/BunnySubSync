@@ -73,7 +73,7 @@ dotnet build
 
 Dev-load the output directory via Dalamud Settings → Experimental → Dev
 Plugin Locations. The server side lives in the
-[bunny_sub_tracker](https://github.com/Juusohel/bunny-sub-tracker) repo.
+[bunny_sub_tracker](https://github.com/Juusohel/bunny_sub_tracker) repo (private).
 
 ## Releasing
 
