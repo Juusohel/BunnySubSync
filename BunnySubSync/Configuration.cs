@@ -35,6 +35,10 @@ public class Configuration : IPluginConfiguration
     public bool AutoPush { get; set; } = true;
     public bool ChatNotifications { get; set; } = true;
 
+    // D4 stage one: push an incomplete row at dispatch time so the website
+    // shows the sub as at-sea. The collection push completes the same row.
+    public bool PushOnDispatch { get; set; } = true;
+
     // Dev-only: shows the Simulator tab. Deliberately has no UI toggle — set
     // it by hand in the config JSON so end users never wander in (plan §9 G2).
     public bool DevMode { get; set; }

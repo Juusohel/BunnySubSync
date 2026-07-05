@@ -3,6 +3,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using BunnySubSync.Api;
 using BunnySubSync.Game;
 using BunnySubSync.Windows;
 
@@ -28,14 +29,18 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("Bunny Sub Sync");
     private MainWindow MainWindow { get; init; }
 
-    // G2 capture layer. Producers (snapshot service, result hook, simulator)
-    // emit onto VoyageEvents; the assembler + journal live below the seam.
+    // G2 capture layer + G3 outbox. Producers (snapshot service, result hook,
+    // simulator) emit onto VoyageEvents; assembler, journal and outbox live
+    // below the seam. Subscription order matters: assembler before outbox, so
+    // journal entries exist by the time the outbox is kicked.
     private readonly VoyageEvents voyageEvents;
     private readonly VoyageJournal voyageJournal;
     private readonly SubSnapshotService subSnapshots;
     private readonly VoyageResultHook voyageResultHook;
     private readonly VoyageAssembler voyageAssembler;
     private readonly VoyageSimulator voyageSimulator;
+    private readonly SyncService syncService;
+    private readonly Outbox outbox;
 
     public Plugin()
     {
@@ -44,11 +49,14 @@ public sealed class Plugin : IDalamudPlugin
         voyageEvents = new VoyageEvents();
         voyageJournal = new VoyageJournal(PluginInterface.GetPluginConfigDirectory());
         subSnapshots = new SubSnapshotService(voyageEvents);
-        voyageAssembler = new VoyageAssembler(voyageEvents, voyageJournal, subSnapshots);
+        voyageAssembler = new VoyageAssembler(voyageEvents, voyageJournal, subSnapshots, Configuration);
+        outbox = new Outbox(voyageEvents, voyageJournal, Configuration);
         voyageResultHook = new VoyageResultHook(voyageEvents);
         voyageSimulator = new VoyageSimulator(voyageEvents);
+        syncService = new SyncService(Configuration);
 
-        MainWindow = new MainWindow(this, voyageJournal, voyageAssembler, voyageSimulator);
+        MainWindow = new MainWindow(
+            this, voyageJournal, voyageAssembler, voyageSimulator, subSnapshots, syncService, outbox);
         WindowSystem.AddWindow(MainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -68,10 +76,11 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         MainWindow.Dispose();
 
-        // Producers first (stop emitting), then the consumer.
+        // Producers first (stop emitting), then the consumers.
         voyageResultHook.Dispose();
         subSnapshots.Dispose();
         voyageAssembler.Dispose();
+        outbox.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
     }

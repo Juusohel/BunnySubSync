@@ -20,12 +20,15 @@ public sealed class VoyageAssembler : IDisposable
     private readonly VoyageEvents events;
     private readonly VoyageJournal journal;
     private readonly SubSnapshotService snapshots;
+    private readonly Configuration configuration;
 
-    public VoyageAssembler(VoyageEvents events, VoyageJournal journal, SubSnapshotService snapshots)
+    public VoyageAssembler(
+        VoyageEvents events, VoyageJournal journal, SubSnapshotService snapshots, Configuration configuration)
     {
         this.events = events;
         this.journal = journal;
         this.snapshots = snapshots;
+        this.configuration = configuration;
         events.Dispatched += OnDispatched;
         events.Completed += OnCompleted;
     }
@@ -40,6 +43,25 @@ public sealed class VoyageAssembler : IDisposable
     {
         var entry = journal.AppendDispatch(ev);
         var durationMinutes = RouteDurationMinutes(ev.ScheduledReturnUnix, ev.DispatchedUtc);
+
+        if (configuration.PushOnDispatch)
+        {
+            // D4 stage one: an incomplete row (collected_at null, no loot)
+            // with the SAME external_voyage_id the collection row will carry —
+            // the server completes it in place. The outbox drains it once the
+            // mapping resolves; if it never goes out, the collection push
+            // alone creates the full row (no coupling).
+            var dispatchRow = BuildRow(
+                ev.FcId, ev.SubRegisterTime, ev.SubName,
+                deployedAtUtc: ev.DispatchedUtc,
+                collectedAtUtc: null,
+                durationMinutes: durationMinutes,
+                sectors: ev.Sectors,
+                loot: [],
+                notes: ev.Simulated ? "[SIM] simulated voyage" : null);
+            journal.Update(entry, e => e.DispatchRow = dispatchRow);
+        }
+
         Plugin.Log.Information(
             $"Dispatch detected{SimTag(ev.Simulated)}: '{ev.SubName}' "
             + $"route {SectorMath.SectorsToRoute(ev.Sectors)}, "
@@ -110,7 +132,7 @@ public sealed class VoyageAssembler : IDisposable
         });
 
         Plugin.Log.Information(
-            $"Voyage assembled{SimTag(ev.Simulated)} (queued, log-only until G3): "
+            $"Voyage assembled{SimTag(ev.Simulated)} (queued for push): "
             + JsonSerializer.Serialize(row));
     }
 
@@ -136,19 +158,31 @@ public sealed class VoyageAssembler : IDisposable
     /// Explicit user action from the Log tab for a journal-missed voyage:
     /// estimate deployed_at from the scheduled return (or, failing that, the
     /// collection time) minus the route duration computed from the sub's
-    /// last-seen build. Returns an error string, or null on success.
+    /// last-seen build. Simulated entries have no build to estimate from, so
+    /// they may pass a fallback duration (the Simulator tab's input) instead —
+    /// real entries never take that path. Returns an error string, or null.
     /// </summary>
-    public string? EstimateAndQueue(JournalEntry entry)
+    public string? EstimateAndQueue(JournalEntry entry, int simFallbackDurationMinutes = 0)
     {
         if (entry.State != OutboxState.Failed || entry.PendingLoot == null || entry.CollectedUtc == null)
             return "This entry has nothing to estimate.";
 
+        uint durationSeconds;
         var snap = snapshots.TryGetLastSnapshot(entry.FcId, entry.SubRegisterTime);
-        if (snap == null)
+        if (snap != null)
+        {
+            durationSeconds = SectorMath.EstimateDurationSeconds(
+                entry.Sectors, snap.RankId, snap.HullId, snap.SternId, snap.BowId, snap.BridgeId);
+        }
+        else if (entry.Simulated && simFallbackDurationMinutes > 0)
+        {
+            durationSeconds = (uint)simFallbackDurationMinutes * 60;
+        }
+        else
+        {
             return "No snapshot of this submarine yet — visit the workshop once, then retry.";
+        }
 
-        var durationSeconds = SectorMath.EstimateDurationSeconds(
-            entry.Sectors, snap.RankId, snap.HullId, snap.SternId, snap.BowId, snap.BridgeId);
         if (durationSeconds == 0)
             return "Could not estimate a duration for this route.";
 
@@ -183,7 +217,7 @@ public sealed class VoyageAssembler : IDisposable
         });
 
         Plugin.Log.Information(
-            $"Estimated voyage queued (log-only until G3): {JsonSerializer.Serialize(row)}");
+            $"Estimated voyage queued for push: {JsonSerializer.Serialize(row)}");
         return null;
     }
 
@@ -192,7 +226,7 @@ public sealed class VoyageAssembler : IDisposable
         uint subRegisterTime,
         string subName,
         DateTime deployedAtUtc,
-        DateTime collectedAtUtc,
+        DateTime? collectedAtUtc,
         int durationMinutes,
         uint[] sectors,
         List<LootLine> loot,
@@ -210,7 +244,7 @@ public sealed class VoyageAssembler : IDisposable
             Route = SectorMath.SectorsToRoute(sectors),
             RouteDurationMinutes = durationMinutes,
             DeployedAt = new DateTimeOffset(deployedAtUtc, TimeSpan.Zero),
-            CollectedAt = new DateTimeOffset(collectedAtUtc, TimeSpan.Zero),
+            CollectedAt = collectedAtUtc is { } c ? new DateTimeOffset(c, TimeSpan.Zero) : null,
             CeruleumTanks = SectorMath.TankCost(sectors),
             Notes = notes,
             Loot = AggregateLoot(loot),

@@ -9,6 +9,10 @@ using Lumina.Text.ReadOnly;
 
 namespace BunnySubSync.Game;
 
+/// <summary>A game FC we've seen a workshop for — identity context the
+/// Mapping tab needs (§3.4: content id + tag + world + character).</summary>
+public sealed record SeenFc(ulong FcId, string Tag, string World, string CharacterName);
+
 /// <summary>One sub's state as last seen in the workshop (also feeds duration estimates).</summary>
 public sealed record SubSnapshot(
     uint RegisterTime,
@@ -40,6 +44,8 @@ public sealed unsafe class SubSnapshotService : IDisposable
     // plugin reload, which correctly re-arms the baseline rule.
     private readonly Dictionary<ulong, Dictionary<uint, SubSnapshot>> known = [];
 
+    private readonly Dictionary<ulong, SeenFc> seenFcs = [];
+
     public SubSnapshotService(VoyageEvents events)
     {
         this.events = events;
@@ -60,6 +66,13 @@ public sealed unsafe class SubSnapshotService : IDisposable
         known.TryGetValue(fcId, out var subs) && subs.TryGetValue(registerTime, out var snap)
             ? snap
             : null;
+
+    /// <summary>Game FCs whose workshop we've visited this session (Mapping tab).</summary>
+    public IReadOnlyCollection<SeenFc> SeenFcs => seenFcs.Values;
+
+    /// <summary>All subs last seen for a game FC, for the Mapping tab's sub rows.</summary>
+    public IReadOnlyCollection<SubSnapshot> SubsOf(ulong fcId) =>
+        known.TryGetValue(fcId, out var subs) ? subs.Values : [];
 
     private void OnFrameworkUpdate(IFramework _)
     {
@@ -92,6 +105,17 @@ public sealed unsafe class SubSnapshotService : IDisposable
         var fcId = InfoProxyFreeCompany.Instance()->Id;
         if (fcId == 0)
             return;
+
+        if (!seenFcs.ContainsKey(fcId))
+        {
+            var local = Plugin.ObjectTable.LocalPlayer;
+            seenFcs[fcId] = new SeenFc(
+                fcId,
+                local?.CompanyTag.TextValue ?? "",
+                local?.HomeWorld.Value.Name.ExtractText() ?? "",
+                local?.Name.TextValue ?? "");
+            Plugin.Log.Information($"Workshop FC seen: {fcId:x} tag '{seenFcs[fcId].Tag}'");
+        }
 
         var fcSubs = known.TryGetValue(fcId, out var existing)
             ? existing

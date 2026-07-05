@@ -21,6 +21,10 @@ public enum OutboxState
 
     /// <summary>Needs attention — see FailureMessage (e.g. "missed dispatch").</summary>
     Failed,
+
+    /// <summary>Deliberately not pushed (FC/sub disabled in the mapping) —
+    /// terminal and quiet per §3.4.4; Retry re-queues if re-enabled.</summary>
+    Skipped,
 }
 
 /// <summary>
@@ -47,6 +51,27 @@ public sealed class JournalEntry
     public List<LootLine>? PendingLoot { get; set; }
 
     public bool Simulated { get; set; }
+
+    // --- G3 outbox fields ---------------------------------------------------
+
+    /// <summary>D4 stage one: the incomplete (collected_at = null) row pushed at
+    /// dispatch time. Shares the collection row's external_voyage_id.</summary>
+    public PushRow? DispatchRow { get; set; }
+
+    /// <summary>Whether the dispatch row reached the server. If it never does,
+    /// the collection push alone creates the full row — no coupling.</summary>
+    public bool DispatchPushed { get; set; }
+
+    /// <summary>Server verdict for the collection push: created | completed |
+    /// enriched | duplicate.</summary>
+    public string? PushStatus { get; set; }
+
+    /// <summary>Loot names the server couldn't match to its catalog.</summary>
+    public List<string>? UnmatchedItems { get; set; }
+
+    /// <summary>Why the outbox is currently not pushing this entry (e.g.
+    /// waiting for mapping) — informational, shown in the Log tab.</summary>
+    public string? WaitReason { get; set; }
 }
 
 /// <summary>
@@ -150,6 +175,15 @@ public sealed class VoyageJournal
         }
     }
 
+    /// <summary>Snapshot in insertion order (outbox drain).</summary>
+    public List<JournalEntry> Snapshot()
+    {
+        lock (sync)
+        {
+            return [.. entries];
+        }
+    }
+
     /// <summary>Snapshot for UI display, newest first.</summary>
     public List<JournalEntry> SnapshotNewestFirst()
     {
@@ -164,6 +198,18 @@ public sealed class VoyageJournal
         lock (sync)
         {
             return entries.Count(e => e.State == state);
+        }
+    }
+
+    /// <summary>Dev-mode housekeeping: drop all simulated entries.</summary>
+    public int RemoveSimulated()
+    {
+        lock (sync)
+        {
+            var removed = entries.RemoveAll(e => e.Simulated);
+            if (removed > 0)
+                SaveLocked();
+            return removed;
         }
     }
 
