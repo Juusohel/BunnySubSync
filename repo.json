@@ -10,7 +10,7 @@
     "DalamudApiLevel": 15,
     "RepoUrl": "https://github.com/Juusohel/BunnySubSync",
     "IconUrl": "https://raw.githubusercontent.com/Juusohel/BunnySubSync/main/BunnySubSync/images/icon.png",
-    "AssemblyVersion": "0.1.1.0",
+    "AssemblyVersion": "0.2.0.0",
     "DownloadLinkInstall": "https://github.com/Juusohel/BunnySubSync/releases/latest/download/latest.zip",
     "DownloadLinkTesting": "https://github.com/Juusohel/BunnySubSync/releases/latest/download/latest.zip",
     "DownloadLinkUpdate": "https://github.com/Juusohel/BunnySubSync/releases/latest/download/latest.zip"
