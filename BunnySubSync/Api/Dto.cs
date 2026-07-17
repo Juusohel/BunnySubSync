@@ -4,9 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace BunnySubSync.Api;
 
-// DTOs mirror the wire contract in
-// feature_plans/PLUGIN_INTEGRATION_IMPLEMENTATION_PLAN.md §3 exactly —
-// field names/shapes are not ours to "improve".
+// DTOs mirror the server's wire contract exactly — field names/shapes are
+// not ours to "improve".
 
 public sealed class SyncResponse
 {
@@ -30,6 +29,18 @@ public sealed class SyncFreeCompany
     [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
     [JsonPropertyName("world")] public string? World { get; set; }
     [JsonPropertyName("is_primary")] public bool IsPrimary { get; set; }
+
+    // True when the key-holder is an accepted member of this FC (owned by
+    // another user); own FCs are false.
+    [JsonPropertyName("shared")] public bool Shared { get; set; }
+
+    // True when the membership is view-only: listed for the stats tab but
+    // never a mapping/push target (the server rejects such pushes anyway).
+    [JsonPropertyName("read_only")] public bool ReadOnly { get; set; }
+
+    // The FC owner's name on shared FCs, so two identically-named shared FCs
+    // are distinguishable in the mapping dropdown; null for own FCs.
+    [JsonPropertyName("owner_name")] public string? OwnerName { get; set; }
 }
 
 public sealed class SyncSubmarine
@@ -39,6 +50,11 @@ public sealed class SyncSubmarine
     [JsonPropertyName("free_company_id")] public int? FreeCompanyId { get; set; }
     [JsonPropertyName("rank")] public int? Rank { get; set; }
     [JsonPropertyName("hull_type")] public string? HullType { get; set; }
+
+    // Mirror the sub's FC flags: a shared sub belongs to the FC owner but a
+    // writer member may push into it; read_only mirrors a viewer membership.
+    [JsonPropertyName("shared")] public bool Shared { get; set; }
+    [JsonPropertyName("read_only")] public bool ReadOnly { get; set; }
 }
 
 public sealed class SyncSalvageItem
@@ -98,4 +114,47 @@ public sealed class PushRowResult
     [JsonPropertyName("deployment_id")] public int? DeploymentId { get; set; }
     [JsonPropertyName("unmatched_items")] public List<string> UnmatchedItems { get; set; } = new();
     [JsonPropertyName("message")] public string? Message { get; set; }
+}
+
+// Response of GET /api/plugin/v1/stats — the in-game overlay aggregate.
+// Completed voyages only; every gil value is computed server-side. All rates
+// use the planned route duration.
+public sealed class StatsResponse
+{
+    [JsonPropertyName("generated_at")] public DateTimeOffset GeneratedAt { get; set; }
+    [JsonPropertyName("scope")] public StatsScope Scope { get; set; } = new();
+    [JsonPropertyName("totals")] public StatsTotals Totals { get; set; } = new();
+    [JsonPropertyName("per_submarine")] public List<StatsSubmarine> PerSubmarine { get; set; } = new();
+    [JsonPropertyName("per_route")] public List<StatsRoute> PerRoute { get; set; } = new();
+}
+
+public sealed class StatsScope
+{
+    // Echoes the request; null = the key-holder's own default scope.
+    [JsonPropertyName("free_company_id")] public int? FreeCompanyId { get; set; }
+}
+
+public sealed class StatsTotals
+{
+    [JsonPropertyName("voyages")] public long Voyages { get; set; }
+    [JsonPropertyName("gil")] public long Gil { get; set; }
+    [JsonPropertyName("voyages_7d")] public long Voyages7d { get; set; }
+    [JsonPropertyName("gil_7d")] public long Gil7d { get; set; }
+}
+
+public sealed class StatsSubmarine
+{
+    [JsonPropertyName("id")] public int Id { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("voyages")] public long Voyages { get; set; }
+    [JsonPropertyName("total_gil")] public long TotalGil { get; set; }
+    [JsonPropertyName("gil_per_route_hour")] public double GilPerRouteHour { get; set; }
+}
+
+public sealed class StatsRoute
+{
+    [JsonPropertyName("route")] public string Route { get; set; } = string.Empty;
+    [JsonPropertyName("voyages")] public long Voyages { get; set; }
+    [JsonPropertyName("avg_gil")] public double AvgGil { get; set; }
+    [JsonPropertyName("gil_per_route_hour")] public double GilPerRouteHour { get; set; }
 }

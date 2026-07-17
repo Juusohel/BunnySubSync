@@ -41,6 +41,13 @@ public class MainWindow : Window, IDisposable
     private string? mappingMessage;
     private DateTime? lastAutoMatchAt;
 
+    // --- Stats tab state -----------------------------------------------------
+    private int? statsScopeFcId;         // null = the account's default scope
+    private StatsResponse? statsResult;
+    private string? statsError;
+    private bool statsLoading;
+    private DateTime? statsLoadedAtUtc;
+
     // --- Backfill tab state --------------------------------------------------
     private readonly BackfillService backfill;
     private readonly FileDialogManager fileDialog = new();
@@ -114,6 +121,12 @@ public class MainWindow : Window, IDisposable
         {
             if (tab.Success)
                 DrawMappingTab();
+        }
+
+        using (var tab = ImRaii.TabItem("Stats"))
+        {
+            if (tab.Success)
+                DrawStatsTab();
         }
 
         using (var tab = ImRaii.TabItem("Log"))
@@ -209,7 +222,7 @@ public class MainWindow : Window, IDisposable
     }
 
     // =========================================================================
-    // Mapping (§3.4 lifecycle)
+    // Mapping — interactive FC/submarine linking
     // =========================================================================
 
     private void DrawMappingTab()
@@ -330,17 +343,22 @@ public class MainWindow : Window, IDisposable
 
         AutoMatchOnce(mapping, seenFc, inventory, ref dirty);
 
-        // Platform FC dropdown. Zero platform FCs → "(account)" pseudo-target
-        // (id 0): sub matching then runs against the whole account.
-        var choices = inventory.FreeCompanies.Count == 0
-            ? [(0, "(account)")]
-            : inventory.FreeCompanies.Select(fc => (fc.Id, $"{fc.Name}{(fc.IsPrimary ? " ★" : "")}")).ToList();
+        // Platform FC dropdown. Own FCs first, then a "Shared with me" group
+        // (each labeled with its owner, since same-named FCs are otherwise
+        // indistinguishable). View-only shared FCs are shown but not selectable
+        // — the server rejects pushes into them. Zero platform FCs →
+        // "(account)" pseudo-target (id 0): sub matching runs against the whole
+        // account.
+        var sharedFcs = inventory.FreeCompanies.Where(fc => fc.Shared).ToList();
 
+        var selectedFc = mapping.PlatformFcId is > 0
+            ? inventory.FreeCompanies.FirstOrDefault(fc => fc.Id == mapping.PlatformFcId)
+            : null;
         var currentLabel = mapping.PlatformFcId switch
         {
             null => "— choose —",
             0 => "(account)",
-            var pid => choices.FirstOrDefault(c => c.Item1 == pid).Item2 ?? $"#{pid} (missing — deleted on site?)",
+            _ => selectedFc != null ? FcLabel(selectedFc) : $"#{mapping.PlatformFcId} (missing — deleted on site?)",
         };
 
         ImGui.SetNextItemWidth(260);
@@ -348,27 +366,54 @@ public class MainWindow : Window, IDisposable
         {
             if (combo.Success)
             {
-                foreach (var (pid, label) in choices)
+                if (inventory.FreeCompanies.Count == 0)
                 {
-                    if (!ImGui.Selectable(label, mapping.PlatformFcId == pid))
-                        continue;
-                    if (mapping.PlatformFcId != pid)
+                    SelectFcOption(0, "(account)", mapping, ref dirty);
+                }
+                else
+                {
+                    foreach (var fc in inventory.FreeCompanies.Where(fc => !fc.Shared))
+                        SelectFcOption(fc.Id, FcLabel(fc), mapping, ref dirty);
+
+                    if (sharedFcs.Count > 0)
                     {
-                        mapping.PlatformFcId = pid;
-                        // Links point into the old FC's subs — clear them.
-                        foreach (var link in mapping.Subs.Values)
-                            link.PlatformSubmarineId = null;
-                        dirty = true;
+                        ImGui.Separator();
+                        using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+                            ImGui.Text("Shared with me");
+
+                        foreach (var fc in sharedFcs)
+                        {
+                            if (fc.ReadOnly)
+                            {
+                                // View-only membership — never a push target.
+                                using (ImRaii.Disabled())
+                                using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+                                    ImGui.Selectable($"{FcLabel(fc)} — view only");
+                            }
+                            else
+                            {
+                                SelectFcOption(fc.Id, FcLabel(fc), mapping, ref dirty);
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Mode-visibility warning (plan §9 G3): pushes would succeed but stay
-        // invisible on the website under the current mode.
+        // A shared FC the user only views (e.g. demoted after mapping it) can't
+        // receive pushes — surface it rather than silently dropping voyages.
+        if (selectedFc is { ReadOnly: true })
+        {
+            using (ImRaii.PushColor(ImGuiCol.Text, WarnColor))
+                ImGui.TextWrapped("This shared FC is view-only — pushes are rejected by the server. It still shows in the Stats tab.");
+        }
+
+        // Mode-visibility warning: pushes would succeed but stay invisible on
+        // the website under the current mode. Shared FCs are exempt — the site
+        // shows them regardless of the multi-FC toggle.
         if (!inventory.MultiFcMode
             && mapping.PlatformFcId is > 0
-            && inventory.FreeCompanies.FirstOrDefault(fc => fc.Id == mapping.PlatformFcId) is { IsPrimary: false })
+            && inventory.FreeCompanies.FirstOrDefault(fc => fc.Id == mapping.PlatformFcId) is { IsPrimary: false, Shared: false })
         {
             using (ImRaii.PushColor(ImGuiCol.Text, WarnColor))
                 ImGui.TextWrapped("Pushes will succeed but stay hidden on the website until you enable multi-FC mode or make this FC primary.");
@@ -385,11 +430,29 @@ public class MainWindow : Window, IDisposable
         }
     }
 
+    private static string FcLabel(SyncFreeCompany fc)
+        => fc.Shared
+            ? $"{fc.Name} — {fc.OwnerName ?? "shared"}"
+            : $"{fc.Name}{(fc.IsPrimary ? " ★" : "")}";
+
+    /// <summary>Renders one platform-FC choice; on a change, re-points the
+    /// mapping and clears the sub links (they point into the old FC's subs).</summary>
+    private void SelectFcOption(int pid, string label, FcMapping mapping, ref bool dirty)
+    {
+        if (!ImGui.Selectable(label, mapping.PlatformFcId == pid) || mapping.PlatformFcId == pid)
+            return;
+
+        mapping.PlatformFcId = pid;
+        foreach (var link in mapping.Subs.Values)
+            link.PlatformSubmarineId = null;
+        dirty = true;
+    }
+
     private void DrawSubLinks(FcMapping mapping, SyncResponse inventory, ref bool dirty)
     {
-        // §3.4.3: sub matching runs ONLY inside the chosen platform FC (or the
-        // whole account for "(account)") — same-named subs in different FCs
-        // can never cross-link.
+        // Sub matching runs ONLY inside the chosen platform FC (or the whole
+        // account for "(account)") — same-named subs in different FCs can never
+        // cross-link.
         var scope = mapping.PlatformFcId == 0
             ? inventory.Submarines
             : inventory.Submarines.Where(s => s.FreeCompanyId == mapping.PlatformFcId).ToList();
@@ -462,12 +525,35 @@ public class MainWindow : Window, IDisposable
                 if (ImGui.SmallButton("copy name"))
                     ImGui.SetClipboardText(link.LastKnownName);
             }
+            else if (current is { Shared: false })
+            {
+                // Collision nudge: this in-game sub is linked to a sub in one of
+                // your OWN FCs, but a shared FC offers a same-named sub. The user
+                // may want to contribute to the shared FC instead — hint only,
+                // never auto-switch. View-only FCs are excluded: they aren't
+                // selectable as a push target, so the advice would be impossible.
+                var sharedTwin = inventory.Submarines.FirstOrDefault(
+                    s => s.Shared && !s.ReadOnly
+                         && string.Equals(s.Name, link.LastKnownName, StringComparison.OrdinalIgnoreCase));
+                if (sharedTwin != null)
+                {
+                    var sharedFc = inventory.FreeCompanies.FirstOrDefault(f => f.Id == sharedTwin.FreeCompanyId);
+                    ImGui.SameLine();
+                    using (ImRaii.PushColor(ImGuiCol.Text, WarnColor))
+                        ImGui.Text("(shared?)");
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(
+                            $"Already linked to your own FC, but '{link.LastKnownName}' also exists in the shared FC "
+                            + $"'{sharedFc?.Name}'{(sharedFc?.OwnerName is { } o ? $" ({o})" : "")}. "
+                            + "Switch Platform FC above to re-point it to the shared FC.");
+                }
+            }
         }
     }
 
     /// <summary>Best-effort FC preselect, once per sync refresh: single
     /// case-insensitive match of the in-game tag against platform FC names.
-    /// Convenience only — the user still has to tick Enabled (§3.4.2).</summary>
+    /// Convenience only — the user still has to tick Enabled.</summary>
     private void AutoMatchOnce(FcMapping mapping, SeenFc? seenFc, SyncResponse inventory, ref bool dirty)
     {
         if (mapping.PlatformFcId != null || seenFc == null || lastAutoMatchAt == sync.LastAtUtc)
@@ -488,6 +574,166 @@ public class MainWindow : Window, IDisposable
     private async System.Threading.Tasks.Task RefreshSyncAsync()
     {
         mappingMessage = await sync.RefreshAsync().ConfigureAwait(false);
+    }
+
+    // =========================================================================
+    // Stats — read-only in-game view of the website's aggregates
+    // =========================================================================
+
+    private void DrawStatsTab()
+    {
+        ImGui.Spacing();
+        ImGui.TextWrapped("Your voyage stats from the website, computed server-side (completed voyages only).");
+        ImGui.Spacing();
+
+        var inventory = sync.Last;
+
+        // Scope selector: the account default, or a specific FC (own or shared,
+        // including view-only ones — stats read even where pushing doesn't).
+        var scopeLabel = statsScopeFcId is { } scopeId
+            ? inventory?.FreeCompanies.FirstOrDefault(f => f.Id == scopeId) is { } scopeFc ? FcLabel(scopeFc) : $"#{scopeId}"
+            : "My default scope";
+        ImGui.SetNextItemWidth(260);
+        using (var combo = ImRaii.Combo("Scope", scopeLabel))
+        {
+            if (combo.Success)
+            {
+                if (ImGui.Selectable("My default scope", statsScopeFcId == null))
+                    statsScopeFcId = null;
+                if (inventory != null)
+                {
+                    foreach (var fc in inventory.FreeCompanies)
+                    {
+                        if (ImGui.Selectable($"{FcLabel(fc)}##{fc.Id}", statsScopeFcId == fc.Id))
+                            statsScopeFcId = fc.Id;
+                    }
+                }
+            }
+        }
+        if (inventory == null)
+        {
+            using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+                ImGui.TextWrapped("Refresh the Mapping tab to list your FCs here; the default scope works without it.");
+        }
+
+        using (ImRaii.Disabled(statsLoading))
+        {
+            if (ImGui.Button("Load stats"))
+                LoadStats();
+        }
+        if (statsLoading)
+        {
+            ImGui.SameLine();
+            ImGui.Text("Loading...");
+        }
+        else if (statsLoadedAtUtc is { } loadedAt)
+        {
+            ImGui.SameLine();
+            using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+                ImGui.Text($"loaded {loadedAt:HH:mm:ss} UTC");
+        }
+
+        if (statsError != null)
+        {
+            ImGui.Spacing();
+            using (ImRaii.PushColor(ImGuiCol.Text, ErrorColor))
+                ImGui.TextWrapped(statsError);
+            return;
+        }
+
+        if (statsResult is not { } stats)
+        {
+            ImGui.Spacing();
+            using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+                ImGui.TextWrapped("No stats loaded yet — pick a scope and Load.");
+            return;
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.Text($"Completed voyages: {stats.Totals.Voyages:N0}  ({stats.Totals.Voyages7d:N0} in the last 7 days)");
+        ImGui.Text($"Total gil: {stats.Totals.Gil:N0}  ({stats.Totals.Gil7d:N0} in the last 7 days)");
+        ImGui.Spacing();
+
+        if (stats.PerSubmarine.Count > 0)
+        {
+            ImGui.Text("By submarine");
+            using var table = ImRaii.Table("StatsSubTable", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV);
+            if (table.Success)
+            {
+                ImGui.TableSetupColumn("Submarine", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Voyages", ImGuiTableColumnFlags.WidthFixed, 70);
+                ImGui.TableSetupColumn("Total gil", ImGuiTableColumnFlags.WidthFixed, 110);
+                ImGui.TableSetupColumn("Gil/route hr", ImGuiTableColumnFlags.WidthFixed, 100);
+                ImGui.TableHeadersRow();
+                foreach (var s in stats.PerSubmarine)
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn(); ImGui.Text(s.Name);
+                    ImGui.TableNextColumn(); ImGui.Text($"{s.Voyages:N0}");
+                    ImGui.TableNextColumn(); ImGui.Text($"{s.TotalGil:N0}");
+                    ImGui.TableNextColumn(); ImGui.Text($"{s.GilPerRouteHour:N0}");
+                }
+            }
+            ImGui.Spacing();
+        }
+
+        if (stats.PerRoute.Count > 0)
+        {
+            ImGui.Text("By route");
+            using var table = ImRaii.Table("StatsRouteTable", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV);
+            if (table.Success)
+            {
+                ImGui.TableSetupColumn("Route", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Voyages", ImGuiTableColumnFlags.WidthFixed, 70);
+                ImGui.TableSetupColumn("Avg gil", ImGuiTableColumnFlags.WidthFixed, 110);
+                ImGui.TableSetupColumn("Gil/route hr", ImGuiTableColumnFlags.WidthFixed, 100);
+                ImGui.TableHeadersRow();
+                foreach (var r in stats.PerRoute)
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn(); ImGui.Text(r.Route);
+                    ImGui.TableNextColumn(); ImGui.Text($"{r.Voyages:N0}");
+                    ImGui.TableNextColumn(); ImGui.Text($"{r.AvgGil:N0}");
+                    ImGui.TableNextColumn(); ImGui.Text($"{r.GilPerRouteHour:N0}");
+                }
+            }
+        }
+
+        if (stats.PerSubmarine.Count == 0 && stats.PerRoute.Count == 0)
+        {
+            using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+                ImGui.TextWrapped("No completed voyages in this scope yet.");
+        }
+    }
+
+    private async void LoadStats()
+    {
+        statsLoading = true;
+        statsError = null;
+        var scope = statsScopeFcId;
+
+        try
+        {
+            using var client = new ApiClient(plugin.Configuration.ServerUrl, plugin.Configuration.ApiToken);
+            statsResult = await client.StatsAsync(scope).ConfigureAwait(false);
+            statsLoadedAtUtc = DateTime.UtcNow;
+        }
+        catch (UnauthorizedException)
+        {
+            statsError = "Token rejected by the server. Check the token on the Status tab.";
+        }
+        catch (Exception ex)
+        {
+            statsError = $"Failed to load stats: {ex.Message}";
+            Plugin.Log.Warning(ex, "Stats load failed");
+        }
+        finally
+        {
+            statsLoading = false;
+        }
     }
 
     // =========================================================================
@@ -633,7 +879,7 @@ public class MainWindow : Window, IDisposable
     }
 
     // =========================================================================
-    // Backfill (G5: SubmarineTracker history → platform CSV)
+    // Backfill (SubmarineTracker history → platform CSV)
     // =========================================================================
 
     private void DrawBackfillTab()
@@ -816,7 +1062,7 @@ public class MainWindow : Window, IDisposable
             // A sub's identity is its register time. Deriving it from the
             // name means "different name = different sim sub" — otherwise
             // every sim run collapses into one mapping row named after the
-            // first voyage (found the hard way at the G3 gate).
+            // first voyage (found the hard way during testing).
             simRegisterTime = StableRegisterFor(simSubName);
         }
         ImGui.SetNextItemWidth(160);

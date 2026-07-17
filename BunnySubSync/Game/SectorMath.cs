@@ -46,7 +46,7 @@ public static class SectorMath
         return value;
     }
 
-    /// <summary>Sectors → concatenated route letters, e.g. [32,22] → "OJ" (decision D8: no separator).</summary>
+    /// <summary>Sectors → concatenated route letters, e.g. [32,22] → "OJ" (no separator).</summary>
     public static string SectorsToRoute(IReadOnlyList<uint> sectors)
     {
         if (sectors.Count == 0)

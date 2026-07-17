@@ -29,7 +29,7 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("Bunny Sub Sync");
     private MainWindow MainWindow { get; init; }
 
-    // G2 capture layer + G3 outbox. Producers (snapshot service, result hook,
+    // Capture layer + outbox. Producers (snapshot service, result hook,
     // simulator) emit onto VoyageEvents; assembler, journal and outbox live
     // below the seam. Subscription order matters: assembler before outbox, so
     // journal entries exist by the time the outbox is kicked.

@@ -10,7 +10,7 @@ using Lumina.Text.ReadOnly;
 namespace BunnySubSync.Game;
 
 /// <summary>A game FC we've seen a workshop for — identity context the
-/// Mapping tab needs (§3.4: content id + tag + world + character).</summary>
+/// Mapping tab needs: content id + tag + world + character.</summary>
 public sealed record SeenFc(ulong FcId, string Tag, string World, string CharacterName);
 
 /// <summary>One sub's state as last seen in the workshop (also feeds duration estimates).</summary>
@@ -30,7 +30,7 @@ public sealed record SubSnapshot(
 /// tick (technique from SubmarineTracker Plugin.cs FrameworkUpdate) and emits
 /// SubDispatched on an observed ReturnTime transition.
 ///
-/// Invariant (plan §9 G2): the first snapshot after login/plugin-load is a
+/// Invariant: the first snapshot after login/plugin-load is a
 /// baseline, not a dispatch — detection fires only on an observed *change* of
 /// ReturnTime for a sub we already had a snapshot of.
 /// </summary>

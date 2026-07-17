@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace BunnySubSync.Game;
 
 // ---------------------------------------------------------------------------
-// The event seam (plan §9 G2): the two game-facing producers (snapshot
+// The event seam: the two game-facing producers (snapshot
 // service, result hook) and the simulator emit ONLY these two events, and
 // everything downstream (journal, assembler, later the outbox/UI) consumes
 // ONLY these. Game memory is never touched below this seam — that equivalence

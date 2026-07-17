@@ -45,6 +45,32 @@ manual entries — dispatches as "at sea", collections with loot and timings.
 That's it. Voyages push automatically from then on — the **Log** tab shows
 what went out. Tokens can be revoked/regenerated on the website at any time.
 
+## Shared Free Companies
+
+If someone shares their FC with you on the website (Free Companies → members),
+it appears in the **Mapping** tab under a **"Shared with me"** divider, labeled
+with the owner's name — two identically-named FCs are otherwise
+indistinguishable in the dropdown. Pick it as your Platform FC to contribute
+your voyages to the shared record: pushes land in the owner's FC and dedupe
+against other members' pushes automatically (voyages carry a game-derived id,
+so the same voyage from two members lands once).
+
+- **View-only** memberships are listed but greyed out as *view only* — you can
+  see their numbers in the Stats tab but never push into them.
+- **Already built your own FC?** If an in-game sub is already linked to a sub in
+  one of *your own* FCs while a shared FC offers a same-named sub, the row shows
+  a `(shared?)` hint. Switch the Platform FC dropdown to the shared FC to
+  re-point the mapping; your own FC keeps its history (it just stops receiving
+  new pushes). Nothing is moved automatically. To consolidate old history, the
+  FC owner can import your CSV export on the website.
+
+## Stats
+
+The **Stats** tab shows your website aggregates in game — totals, per-submarine,
+and per-route gil (completed voyages only, all computed server-side). Pick a
+scope (your default data, or a specific FC, including shared ones) and **Load
+stats**. It's read-only and never changes anything.
+
 ## Backfill (optional)
 
 If you've been running **SubmarineTracker**, the **Backfill** tab can export
