@@ -5,9 +5,8 @@ using System.Linq;
 namespace BunnySubSync.Game;
 
 /// <summary>
-/// Dev-gated second producer of the seam events (plan §9 G2: "simulation
-/// mode, in scope, required"). Emits exactly the same SubDispatched /
-/// VoyageCompleted records as the real capture layer, so every line of code
+/// Dev-gated second producer of the seam events. Emits exactly the same
+/// SubDispatched / VoyageCompleted records as the real capture layer, so every line of code
 /// below the seam — journal, assembler, later the outbox and pushes — runs
 /// unchanged. The only thing it can't test is whether the capture adapter
 /// reads game memory correctly; that stays the job of the real-voyage gates.

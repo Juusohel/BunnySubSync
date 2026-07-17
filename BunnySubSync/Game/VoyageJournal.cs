@@ -13,17 +13,17 @@ public enum OutboxState
     /// <summary>Dispatch observed; waiting for the voyage result.</summary>
     PendingCollection,
 
-    /// <summary>Voyage assembled into a PushRow; ready for the G3 outbox worker.</summary>
+    /// <summary>Voyage assembled into a PushRow; ready for the outbox worker.</summary>
     Queued,
 
-    /// <summary>Pushed to the server (G3).</summary>
+    /// <summary>Pushed to the server.</summary>
     Sent,
 
     /// <summary>Needs attention — see FailureMessage (e.g. "missed dispatch").</summary>
     Failed,
 
     /// <summary>Deliberately not pushed (FC/sub disabled in the mapping) —
-    /// terminal and quiet per §3.4.4; Retry re-queues if re-enabled.</summary>
+    /// terminal and quiet; Retry re-queues if re-enabled.</summary>
     Skipped,
 }
 
@@ -52,9 +52,9 @@ public sealed class JournalEntry
 
     public bool Simulated { get; set; }
 
-    // --- G3 outbox fields ---------------------------------------------------
+    // --- Outbox fields ------------------------------------------------------
 
-    /// <summary>D4 stage one: the incomplete (collected_at = null) row pushed at
+    /// <summary>Dispatch stage: the incomplete (collected_at = null) row pushed at
     /// dispatch time. Shares the collection row's external_voyage_id.</summary>
     public PushRow? DispatchRow { get; set; }
 
@@ -75,8 +75,8 @@ public sealed class JournalEntry
 }
 
 /// <summary>
-/// Persisted voyage journal. Two invariants (plan §9 G2, "bugs waiting to
-/// happen otherwise"):
+/// Persisted voyage journal. Two invariants (bugs waiting to happen
+/// otherwise):
 /// 1. This is an append-style list of voyages, never a per-sub slot — a
 ///    collect-then-redispatch produces a second entry, it never overwrites
 ///    the first before the outbox drains it.

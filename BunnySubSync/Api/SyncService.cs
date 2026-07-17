@@ -7,7 +7,7 @@ namespace BunnySubSync.Api;
 /// Holds the latest /sync inventory (FCs, subs, catalog, multi_fc_mode) for
 /// the Mapping tab and the outbox's stale-link recovery. Refreshed explicitly
 /// (Test connection, Mapping-tab Refresh) — never on a timer; the mapping
-/// flow is interactive by design (§3.4).
+/// flow is interactive by design.
 /// </summary>
 public sealed class SyncService(Configuration configuration)
 {

@@ -10,13 +10,13 @@ using Dalamud.Plugin.Services;
 namespace BunnySubSync.Game;
 
 /// <summary>
-/// Drains the journal to the server (plan §9 G3). Below the seam: consumes
+/// Drains the journal to the server. Below the seam: consumes
 /// journal entries + config mapping only. Cadence: every 60s and immediately
 /// on new work; transport failure → exponential backoff (1, 2, 4 … cap 30
-/// min); 401 → pause until the token changes. Idempotency (D5) makes every
-/// retry safe.
+/// min); 401 → pause until the token changes. The stable idempotency key
+/// makes every retry safe.
 ///
-/// Mapping gating per §3.4.4, adapted to the journal model: voyages whose
+/// Mapping gating, adapted to the journal model: voyages whose
 /// mapping is *missing* stay Queued with a visible "waiting" reason (mapping
 /// usually arrives after the first voyages); voyages whose FC/sub the user
 /// explicitly *disabled* go to Skipped quietly.
@@ -200,7 +200,7 @@ public sealed class Outbox : IDisposable
                     break;
 
                 case Resolution.Disabled:
-                    // Explicitly disabled by the user — quiet per §3.4.4.
+                    // Explicitly disabled by the user — stays quiet.
                     if (isCollectionRow)
                     {
                         journal.Update(entry, e =>
@@ -325,7 +325,7 @@ public sealed class Outbox : IDisposable
             || !mapping.Subs.TryGetValue(entry.SubRegisterTime, out var link))
             return;
 
-        // §3.4 staleness recovery: unlink, surface on the Mapping tab —
+        // Staleness recovery: unlink, surface on the Mapping tab —
         // nothing is retried blindly.
         link.PlatformSubmarineId = null;
         configuration.Save();

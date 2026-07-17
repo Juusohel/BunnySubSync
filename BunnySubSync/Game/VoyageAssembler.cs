@@ -11,7 +11,7 @@ namespace BunnySubSync.Game;
 /// Below-the-seam consumer: turns SubDispatched/VoyageCompleted events into
 /// journal entries and wire-ready PushRows. Knows nothing about game memory —
 /// only events, the journal, static sheet data, and the snapshot *cache*.
-/// G2 is log-only: rows end up Queued in the journal; the G3 outbox worker
+/// Capture is log-only: rows end up Queued in the journal; the outbox worker
 /// will drain them (resolving the platform submarine_id from the mapping at
 /// drain time — that's why BuiltRow.SubmarineId stays 0 here).
 /// </summary>
@@ -46,7 +46,7 @@ public sealed class VoyageAssembler : IDisposable
 
         if (configuration.PushOnDispatch)
         {
-            // D4 stage one: an incomplete row (collected_at null, no loot)
+            // Dispatch stage: an incomplete row (collected_at null, no loot)
             // with the SAME external_voyage_id the collection row will carry —
             // the server completes it in place. The outbox drains it once the
             // mapping resolves; if it never goes out, the collection push
@@ -140,8 +140,8 @@ public sealed class VoyageAssembler : IDisposable
     {
         // Plugin installed mid-voyage, or the journal was lost. Never
         // silently assemble with guessed times — record it Failed and let the
-        // user explicitly Estimate & queue from the Log tab (plan §9 G2:
-        // a wrong 3-day voyage skews gil/hour more than a missing one).
+        // user explicitly Estimate & queue from the Log tab (a wrong 3-day
+        // voyage skews gil/hour more than a missing one).
         var lastSnap = snapshots.TryGetLastSnapshot(ev.FcId, ev.SubRegisterTime);
         var entry = journal.AppendMissedDispatch(
             ev,
@@ -238,10 +238,10 @@ public sealed class VoyageAssembler : IDisposable
 
         return new PushRow
         {
-            // Idempotency key per decision D5: stable across dispatch push
-            // (G3) and collection push for the same voyage.
+            // Idempotency key: stable across the dispatch push and the
+            // collection push for the same voyage.
             ExternalVoyageId = $"{fcId:x}-{subRegisterTime}-{deployedUnix}",
-            SubmarineId = 0, // resolved from the mapping by the G3 outbox
+            SubmarineId = 0, // resolved from the mapping by the outbox
             ClientSubmarineName = subName,
             Route = SectorMath.SectorsToRoute(sectors),
             RouteDurationMinutes = durationMinutes,
@@ -254,7 +254,7 @@ public sealed class VoyageAssembler : IDisposable
         };
     }
 
-    /// <summary>Aggregate loot lines by (item, hq), summing quantities (plan §9 G2).</summary>
+    /// <summary>Aggregate loot lines by (item, hq), summing quantities.</summary>
     private static List<PushLoot> AggregateLoot(List<LootLine> loot)
     {
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();

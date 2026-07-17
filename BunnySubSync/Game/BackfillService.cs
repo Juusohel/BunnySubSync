@@ -12,7 +12,7 @@ using Lumina.Excel.Sheets;
 namespace BunnySubSync.Game;
 
 /// <summary>
-/// G5: turns SubmarineTracker's SQLite history into a CSV the platform's
+/// Turns SubmarineTracker's SQLite history into a CSV the platform's
 /// existing web import understands. Read-only with respect to the source —
 /// the DB (plus -wal/-shm) is copied to temp before opening, because
 /// SubmarineTracker may hold it open under WAL mode.
@@ -242,7 +242,7 @@ public sealed class BackfillService(Configuration configuration, SyncService syn
 
         foreach (var voyage in voyages)
         {
-            // Mapped = FC chosen + sub linked (G3 mapping). The Enabled
+            // Mapped = FC chosen + sub linked. The Enabled
             // toggles gate live pushes, not backfill exports.
             if (!configuration.FcMappings.TryGetValue(voyage.FcId, out var mapping)
                 || mapping.PlatformFcId == null

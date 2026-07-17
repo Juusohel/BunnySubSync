@@ -41,6 +41,21 @@ public sealed class ApiClient : IDisposable
         return result ?? throw new JsonException("Empty sync response body.");
     }
 
+    /// <param name="freeCompanyId">Scope to a specific FC (own or shared), or
+    /// null for the key-holder's own default scope.</param>
+    public async Task<StatsResponse> StatsAsync(int? freeCompanyId)
+    {
+        var path = freeCompanyId is { } id
+            ? $"api/plugin/v1/stats?free_company_id={id}"
+            : "api/plugin/v1/stats";
+        using var response = await client.GetAsync(path).ConfigureAwait(false);
+        await ThrowIfUnauthorizedAsync(response).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<StatsResponse>(JsonOptions).ConfigureAwait(false);
+        return result ?? throw new JsonException("Empty stats response body.");
+    }
+
     public async Task<PushResponse> PushAsync(List<PushRow> rows)
     {
         var request = new PushRequest { Deployments = rows };
