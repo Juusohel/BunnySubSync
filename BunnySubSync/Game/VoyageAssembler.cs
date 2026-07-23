@@ -73,20 +73,23 @@ public sealed class VoyageAssembler : IDisposable
     {
         var entry = journal.FindPendingCollection(ev.FcId, ev.SubRegisterTime);
 
-        // Stale-join guard: if the plugin was off across a collect+redispatch,
-        // the journal still holds voyage 1's pending entry while this result
-        // belongs to voyage 2 (whose dispatch we never saw — baseline rule).
-        // Joining would stamp voyage 2's loot with voyage 1's times. The
-        // last snapshot's ReturnTime is voyage 2's schedule — a mismatch with
-        // the entry's schedule exposes the staleness.
+        // Stale-join guard: if this machine never saw this voyage's dispatch
+        // (plugin off across a collect+redispatch, or the voyage was
+        // dispatched from another device — multi-PC / shared-FC flows), the
+        // journal may still hold an *earlier* voyage's pending entry. Joining
+        // would stamp this voyage's loot with the old entry's times and
+        // external_voyage_id (the server would then call it a duplicate and
+        // drop the loot). Compare against the last *non-zero* observed
+        // ReturnTime: the live snapshot is useless here — collection zeroes
+        // it a tick before the result packet lands.
         if (entry != null && !ev.Simulated)
         {
-            var lastSnap = snapshots.TryGetLastSnapshot(ev.FcId, ev.SubRegisterTime);
-            if (lastSnap is { ReturnTime: not 0 } && lastSnap.ReturnTime != entry.ScheduledReturnUnix)
+            var lastReturn = snapshots.LastVoyageReturnUnix(ev.FcId, ev.SubRegisterTime);
+            if (lastReturn != 0 && lastReturn != entry.ScheduledReturnUnix)
             {
                 Plugin.Log.Warning(
                     $"Pending journal entry for '{entry.SubName}' is from an earlier voyage "
-                    + $"(scheduled return {entry.ScheduledReturnUnix} vs observed {lastSnap.ReturnTime}) "
+                    + $"(scheduled return {entry.ScheduledReturnUnix} vs observed {lastReturn}) "
                     + "— its collection was never observed; treating this result as a missed dispatch");
                 journal.Update(entry, e =>
                 {
@@ -138,15 +141,40 @@ public sealed class VoyageAssembler : IDisposable
 
     private void OnCompletedWithoutDispatch(VoyageCompleted ev)
     {
-        // Plugin installed mid-voyage, or the journal was lost. Never
-        // silently assemble with guessed times — record it Failed and let the
-        // user explicitly Estimate & queue from the Log tab (a wrong 3-day
-        // voyage skews gil/hour more than a missing one).
-        var lastSnap = snapshots.TryGetLastSnapshot(ev.FcId, ev.SubRegisterTime);
+        // Dispatched from another device (multi-PC / shared-FC), plugin
+        // installed mid-voyage, or the journal was lost. Anchor on the last
+        // non-zero observed ReturnTime — the live snapshot's is already 0 by
+        // the time the result packet lands.
+        var lastReturn = snapshots.LastVoyageReturnUnix(ev.FcId, ev.SubRegisterTime);
         var entry = journal.AppendMissedDispatch(
             ev,
-            lastKnownReturnUnix: lastSnap?.ReturnTime ?? 0,
+            lastKnownReturnUnix: lastReturn,
             subName: ev.SubName);
+
+        // Schedule-anchored auto-recovery: with the voyage's actual scheduled
+        // return in hand, deployed_at = return − estimated duration is derived
+        // from game truth, not guessed — safe to queue without user action
+        // (this is what makes dispatch-on-one-device, collect-on-another work
+        // unattended). The row still goes out flagged deployed_at_estimated,
+        // so when another device pushed the real dispatch, the server keeps
+        // that row's own times (ingest enrich rule). Without the anchor we
+        // keep the old behavior: fail loudly, never push guessed times
+        // silently (a wrong 3-day voyage skews gil/hour more than a missing
+        // one).
+        if (lastReturn != 0 && !ev.Simulated)
+        {
+            var error = EstimateAndQueue(entry);
+            if (error == null)
+            {
+                Plugin.Log.Information(
+                    $"Voyage completed with no journaled dispatch: '{ev.SubName}' "
+                    + $"route {SectorMath.SectorsToRoute(ev.Sectors)} — auto-queued from the "
+                    + $"observed schedule (journal entry {entry.Id})");
+                return;
+            }
+
+            Plugin.Log.Warning($"Auto-estimate failed for '{ev.SubName}': {error}");
+        }
 
         Plugin.Log.Warning(
             $"Voyage completed with no journaled dispatch{SimTag(ev.Simulated)}: "
@@ -155,11 +183,13 @@ public sealed class VoyageAssembler : IDisposable
     }
 
     /// <summary>
-    /// Explicit user action from the Log tab for a journal-missed voyage:
-    /// estimate deployed_at from the scheduled return (or, failing that, the
-    /// collection time) minus the route duration computed from the sub's
-    /// last-seen build. Simulated entries have no build to estimate from, so
-    /// they may pass a fallback duration (the Simulator tab's input) instead —
+    /// Queue a journal-missed voyage: estimate deployed_at from the scheduled
+    /// return (or, failing that, the collection time) minus the route duration
+    /// computed from the sub's last-seen build. Called automatically by
+    /// OnCompletedWithoutDispatch when the observed schedule anchors the
+    /// estimate, and explicitly via the Log tab's "Estimate & queue" button
+    /// otherwise. Simulated entries have no build to estimate from, so they
+    /// may pass a fallback duration (the Simulator tab's input) instead —
     /// real entries never take that path. Returns an error string, or null.
     /// </summary>
     public string? EstimateAndQueue(JournalEntry entry, int simFallbackDurationMinutes = 0)

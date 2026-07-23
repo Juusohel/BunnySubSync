@@ -57,6 +57,13 @@ so the same voyage from two members lands once).
 
 - **View-only** memberships are listed but greyed out as *view only* — you can
   see their numbers in the Stats tab but never push into them.
+- **Different people (or PCs) dispatching and collecting works.** If someone
+  else dispatched a voyage — or you dispatched it on another computer — the
+  collecting plugin won't have seen the dispatch; it back-computes the launch
+  time from the voyage's actual in-game schedule and pushes automatically,
+  and the server matches it to the dispatcher's "at sea" entry and completes
+  it in place with the dispatcher's original times kept. Voyages collected
+  this way are tagged `[EST]` in their notes.
 - **Already built your own FC?** If an in-game sub is already linked to a sub in
   one of *your own* FCs while a shared FC offers a same-named sub, the row shows
   a `(shared?)` hint. Switch the Platform FC dropdown to the shared FC to

@@ -44,6 +44,15 @@ public sealed unsafe class SubSnapshotService : IDisposable
     // plugin reload, which correctly re-arms the baseline rule.
     private readonly Dictionary<ulong, Dictionary<uint, SubSnapshot>> known = [];
 
+    // fcId → (registerTime → last *non-zero* ReturnTime seen). Collection
+    // zeroes the live ReturnTime on the next tick — *before* the voyage-result
+    // packet lands — so the live cache cannot answer "which voyage was just
+    // collected?". This one can: it survives the T→0 transition and always
+    // holds the schedule of the voyage being (or about to be) collected.
+    // Memory-only is fine: ReturnTime stays set until the collect click, so
+    // the baseline poll on entering the workshop repopulates it first.
+    private readonly Dictionary<ulong, Dictionary<uint, uint>> lastVoyageReturn = [];
+
     private readonly Dictionary<ulong, SeenFc> seenFcs = [];
 
     public SubSnapshotService(VoyageEvents events)
@@ -66,6 +75,18 @@ public sealed unsafe class SubSnapshotService : IDisposable
         known.TryGetValue(fcId, out var subs) && subs.TryGetValue(registerTime, out var snap)
             ? snap
             : null;
+
+    /// <summary>
+    /// The last *non-zero* scheduled return observed for a sub (0 = never
+    /// seen mid-voyage this session). Unlike the live snapshot's ReturnTime —
+    /// already zeroed by the collection click when the result packet lands —
+    /// this identifies the voyage that was just collected. Used by the
+    /// assembler's stale-join guard and missed-dispatch estimate anchor.
+    /// </summary>
+    public uint LastVoyageReturnUnix(ulong fcId, uint registerTime) =>
+        lastVoyageReturn.TryGetValue(fcId, out var subs) && subs.TryGetValue(registerTime, out var t)
+            ? t
+            : 0;
 
     /// <summary>Game FCs whose workshop we've visited this session (Mapping tab).</summary>
     public IReadOnlyCollection<SeenFc> SeenFcs => seenFcs.Values;
@@ -136,6 +157,16 @@ public sealed unsafe class SubSnapshotService : IDisposable
                 continue;
 
             fcSubs[current.RegisterTime] = current;
+
+            // Remember the schedule across the T→0 collection transition
+            // (see lastVoyageReturn) — recorded on baseline and on dispatch.
+            if (current.ReturnTime != 0)
+            {
+                var fcReturns = lastVoyageReturn.TryGetValue(fcId, out var r)
+                    ? r
+                    : lastVoyageReturn[fcId] = [];
+                fcReturns[current.RegisterTime] = current.ReturnTime;
+            }
 
             if (prev == null)
             {
