@@ -46,6 +46,11 @@ public class Configuration : IPluginConfiguration
     // Key: in-game FC content id.
     public Dictionary<ulong, FcMapping> FcMappings { get; set; } = new();
 
+    // The game version whose submarine sheets were last sent to the server
+    // (or refused there — non-admin accounts don't upload). On load, a
+    // different running version triggers one upload.
+    public string? LastGameDataVersion { get; set; }
+
     public void Save()
     {
         Plugin.PluginInterface.SavePluginConfig(this);

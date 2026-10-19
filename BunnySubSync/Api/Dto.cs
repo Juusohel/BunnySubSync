@@ -158,3 +158,76 @@ public sealed class StatsRoute
     [JsonPropertyName("avg_gil")] public double AvgGil { get; set; }
     [JsonPropertyName("gil_per_route_hour")] public double GilPerRouteHour { get; set; }
 }
+
+// Body of POST /api/plugin/v1/gamedata — the three submarine sheets,
+// dumped once per game version and read in English whatever the client
+// language. The field set is everything SubmarineTracker's formulas read; the
+// server's route planner ports those formulas, so a field dropped here breaks
+// it silently. Integer widths are the sheets' own.
+public sealed class GameDataUpload
+{
+    [JsonPropertyName("game_version")] public string GameVersion { get; set; } = string.Empty;
+    [JsonPropertyName("exploration")] public List<GameDataSector> Exploration { get; set; } = new();
+    [JsonPropertyName("parts")] public List<GameDataPart> Parts { get; set; } = new();
+    [JsonPropertyName("ranks")] public List<GameDataRank> Ranks { get; set; } = new();
+}
+
+public sealed class GameDataSector
+{
+    [JsonPropertyName("sector_id")] public ushort SectorId { get; set; }
+    [JsonPropertyName("map_id")] public ushort MapId { get; set; }
+    [JsonPropertyName("map_name")] public string MapName { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    // Route letter relative to the map's start (as in pushed route strings);
+    // null on the map's starting point, which has no letter.
+    [JsonPropertyName("letter")] public string? Letter { get; set; }
+    [JsonPropertyName("starting_point")] public bool StartingPoint { get; set; }
+    [JsonPropertyName("rank_required")] public byte RankRequired { get; set; }
+    [JsonPropertyName("exp_reward")] public uint ExpReward { get; set; }
+    [JsonPropertyName("x")] public short X { get; set; }
+    [JsonPropertyName("y")] public short Y { get; set; }
+    [JsonPropertyName("z")] public short Z { get; set; }
+    [JsonPropertyName("survey_distance")] public byte SurveyDistance { get; set; }
+    [JsonPropertyName("survey_duration_min")] public ushort SurveyDurationMin { get; set; }
+    [JsonPropertyName("ceruleum_tank_req")] public byte CeruleumTankReq { get; set; }
+}
+
+public sealed class GameDataPart
+{
+    [JsonPropertyName("part_id")] public ushort PartId { get; set; }
+    // The part's item name; null for a part id the exporter has no item for.
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    // Raw sheet values. Slot: 0 hull, 1 stern, 2 bow, 3 bridge.
+    [JsonPropertyName("slot")] public byte Slot { get; set; }
+    [JsonPropertyName("class")] public ushort Class { get; set; }
+    [JsonPropertyName("rank")] public byte Rank { get; set; }
+    [JsonPropertyName("components")] public byte Components { get; set; }
+    [JsonPropertyName("repair_materials")] public byte RepairMaterials { get; set; }
+    [JsonPropertyName("surveillance")] public short Surveillance { get; set; }
+    [JsonPropertyName("retrieval")] public short Retrieval { get; set; }
+    [JsonPropertyName("speed")] public short Speed { get; set; }
+    [JsonPropertyName("range")] public short Range { get; set; }
+    [JsonPropertyName("favor")] public short Favor { get; set; }
+}
+
+public sealed class GameDataRank
+{
+    [JsonPropertyName("rank")] public ushort Rank { get; set; }
+    [JsonPropertyName("exp_to_next")] public uint ExpToNext { get; set; }
+    [JsonPropertyName("capacity")] public ushort Capacity { get; set; }
+    [JsonPropertyName("surveillance_bonus")] public byte SurveillanceBonus { get; set; }
+    [JsonPropertyName("retrieval_bonus")] public byte RetrievalBonus { get; set; }
+    [JsonPropertyName("speed_bonus")] public byte SpeedBonus { get; set; }
+    [JsonPropertyName("range_bonus")] public byte RangeBonus { get; set; }
+    [JsonPropertyName("favor_bonus")] public byte FavorBonus { get; set; }
+}
+
+// 200 body: "created" (a new version, now current) or "unchanged" (already
+// stored with the same numbers). 403/409 bodies carry error + message instead.
+public sealed class GameDataUploadResponse
+{
+    [JsonPropertyName("status")] public string? Status { get; set; }
+    [JsonPropertyName("game_version")] public string? GameVersion { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("message")] public string? Message { get; set; }
+}

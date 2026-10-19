@@ -42,6 +42,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly SyncService syncService;
     private readonly Outbox outbox;
     private readonly BackfillService backfillService;
+    private readonly GameDataUploader gameDataUploader;
 
     public Plugin()
     {
@@ -56,10 +57,11 @@ public sealed class Plugin : IDalamudPlugin
         voyageSimulator = new VoyageSimulator(voyageEvents);
         syncService = new SyncService(Configuration);
         backfillService = new BackfillService(Configuration, syncService);
+        gameDataUploader = new GameDataUploader(Configuration);
 
         MainWindow = new MainWindow(
             this, voyageJournal, voyageAssembler, voyageSimulator, subSnapshots, syncService, outbox,
-            backfillService);
+            backfillService, gameDataUploader);
         WindowSystem.AddWindow(MainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -69,6 +71,9 @@ public sealed class Plugin : IDalamudPlugin
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
+
+        // Once per game version, off the framework thread; never blocks sync.
+        gameDataUploader.UploadIfNewVersion();
     }
 
     public void Dispose()

@@ -29,6 +29,7 @@ public class MainWindow : Window, IDisposable
     private readonly SubSnapshotService snapshots;
     private readonly SyncService sync;
     private readonly Outbox outbox;
+    private readonly GameDataUploader gameData;
 
     private string serverUrlInput;
     private string apiTokenInput;
@@ -80,10 +81,12 @@ public class MainWindow : Window, IDisposable
 
     public MainWindow(
         Plugin plugin, VoyageJournal journal, VoyageAssembler assembler, VoyageSimulator simulator,
-        SubSnapshotService snapshots, SyncService sync, Outbox outbox, BackfillService backfill)
+        SubSnapshotService snapshots, SyncService sync, Outbox outbox, BackfillService backfill,
+        GameDataUploader gameData)
         : base("Bunny Sub Sync##BunnySubSyncMainWindow")
     {
         this.backfill = backfill;
+        this.gameData = gameData;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(480, 360),
@@ -218,6 +221,64 @@ public class MainWindow : Window, IDisposable
             ImGui.Spacing();
             using var color = ImRaii.PushColor(ImGuiCol.Text, statusIsError ? ErrorColor : SuccessColor);
             ImGui.TextWrapped(statusMessage);
+        }
+
+        ImGui.Spacing();
+        DrawGameDataSection();
+    }
+
+    private void DrawGameDataSection()
+    {
+        if (!ImGui.CollapsingHeader("Game data (route planner)"))
+            return;
+
+        string version;
+        try
+        {
+            version = GameDataUploader.CurrentGameVersion();
+        }
+        catch (Exception)
+        {
+            version = "unknown";
+        }
+
+        using (ImRaii.PushColor(ImGuiCol.Text, MutedColor))
+        {
+            ImGui.TextWrapped(
+                "The site's route planner is built from the game's submarine sheets. The plugin sends "
+                + "them once per game version, automatically; the server only keeps uploads from admin "
+                + "accounts.");
+            ImGui.TextWrapped(
+                $"Game version {version} — last sent: {plugin.Configuration.LastGameDataVersion ?? "never"}");
+        }
+
+        using (ImRaii.Disabled(gameData.Busy))
+        {
+            if (ImGui.Button("Re-upload game data"))
+                gameData.UploadNow();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Save game data to file…"))
+        {
+            fileDialog.SaveFileDialog(
+                "Save game data", ".json", $"bunnysub_gamedata_{version}.json", ".json", (ok, path) =>
+                {
+                    if (ok && !string.IsNullOrEmpty(path))
+                        gameData.SaveToFile(path);
+                });
+        }
+
+        if (gameData.Busy)
+        {
+            ImGui.SameLine();
+            ImGui.Text("Uploading...");
+        }
+
+        if (gameData.LastMessage != null)
+        {
+            using var color = ImRaii.PushColor(ImGuiCol.Text, gameData.LastMessageIsError ? ErrorColor : SuccessColor);
+            ImGui.TextWrapped(gameData.LastMessage);
         }
     }
 
