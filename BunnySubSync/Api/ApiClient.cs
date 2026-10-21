@@ -91,6 +91,27 @@ public sealed class ApiClient : IDisposable
         return new GameDataUploadResult(response.StatusCode, body);
     }
 
+    /// <summary>POST changed sub builds and/or sector unlocks. Throws on a
+    /// rejected token, an error status or a transport failure. Returns null
+    /// when a 200 isn't the server's own answer (a site too old to have this
+    /// endpoint), so nothing is marked as sent.</summary>
+    public async Task<BuildPushResponse?> PushBuildAsync(BuildPushRequest request)
+    {
+        using var response = await client.PostAsJsonAsync("api/plugin/v1/build", request, JsonOptions).ConfigureAwait(false);
+        await ThrowIfUnauthorizedAsync(response).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<BuildPushResponse>(JsonOptions).ConfigureAwait(false);
+            return result?.Submarines == null ? null : result;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
     private static async Task ThrowIfUnauthorizedAsync(HttpResponseMessage response)
     {
         if (response.StatusCode == HttpStatusCode.Unauthorized)

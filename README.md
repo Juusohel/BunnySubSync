@@ -98,6 +98,11 @@ stores returns).
   submarine sheets (sectors, parts, ranks — static game data, nothing about
   you or your subs). The server only keeps uploads from admin accounts, so
   for everyone else this is a single refused request per game patch.
+- For linked submarines the plugin also sends each sub's rank and parts
+  (whenever they change, and with each voyage) and the sector ids each voyage
+  visits; for linked FCs, which sectors the workshop has unlocked and
+  explored. The site shows the build, keeps rank and build in step with the
+  game, and uses the sectors for the route planner.
 
 ## Building from source
 

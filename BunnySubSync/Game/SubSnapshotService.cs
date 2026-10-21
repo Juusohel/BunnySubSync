@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
@@ -13,7 +14,9 @@ namespace BunnySubSync.Game;
 /// Mapping tab needs: content id + tag + world + character.</summary>
 public sealed record SeenFc(ulong FcId, string Tag, string World, string CharacterName);
 
-/// <summary>One sub's state as last seen in the workshop (also feeds duration estimates).</summary>
+/// <summary>One sub's state as last seen in the workshop (also feeds duration
+/// estimates). TakenUtc is when this exact state was first read: an unchanged
+/// read keeps the earlier snapshot.</summary>
 public sealed record SubSnapshot(
     uint RegisterTime,
     string Name,
@@ -23,7 +26,15 @@ public sealed record SubSnapshot(
     ushort HullId,
     ushort SternId,
     ushort BowId,
-    ushort BridgeId);
+    ushort BridgeId,
+    DateTime TakenUtc)
+{
+    public SubBuild Build => new(RankId, HullId, SternId, BowId, BridgeId);
+}
+
+/// <summary>A workshop's unlocked and explored sectors (SubmarineExploration
+/// row ids), and when that state was first read.</summary>
+public sealed record SectorUnlocks(uint[] Unlocked, uint[] Explored, DateTime TakenUtc);
 
 /// <summary>
 /// Above-the-seam producer #1: polls workshop submarine data on the framework
@@ -37,6 +48,7 @@ public sealed record SubSnapshot(
 public sealed unsafe class SubSnapshotService : IDisposable
 {
     private const uint IslandSanctuaryTerritoryUse = 49;
+    private const int UnlockReadIntervalSeconds = 10;
 
     private readonly VoyageEvents events;
 
@@ -44,16 +56,25 @@ public sealed unsafe class SubSnapshotService : IDisposable
     // plugin reload, which correctly re-arms the baseline rule.
     private readonly Dictionary<ulong, Dictionary<uint, SubSnapshot>> known = [];
 
-    // fcId → (registerTime → last *non-zero* ReturnTime seen). Collection
-    // zeroes the live ReturnTime on the next tick — *before* the voyage-result
+    // fcId → (registerTime → the last voyage seen under way: its *non-zero*
+    // ReturnTime, plus the build from its first sighting). Collection zeroes
+    // the live ReturnTime on the next tick — *before* the voyage-result
     // packet lands — so the live cache cannot answer "which voyage was just
     // collected?". This one can: it survives the T→0 transition and always
     // holds the schedule of the voyage being (or about to be) collected.
     // Memory-only is fine: ReturnTime stays set until the collect click, so
     // the baseline poll on entering the workshop repopulates it first.
-    private readonly Dictionary<ulong, Dictionary<uint, uint>> lastVoyageReturn = [];
+    private readonly Dictionary<ulong, Dictionary<uint, VoyageSighting>> lastVoyage = [];
 
     private readonly Dictionary<ulong, SeenFc> seenFcs = [];
+
+    // fcId → the workshop's sector unlocks, re-read every few seconds while
+    // inside it. Never holds an empty read.
+    private readonly Dictionary<ulong, SectorUnlocks> unlocks = [];
+    private DateTime nextUnlockReadUtc = DateTime.MinValue;
+    private bool unlockReadFailed;
+
+    private sealed record VoyageSighting(uint ReturnTime, SubBuild Build);
 
     public SubSnapshotService(VoyageEvents events)
     {
@@ -84,9 +105,20 @@ public sealed unsafe class SubSnapshotService : IDisposable
     /// assembler's stale-join guard and missed-dispatch estimate anchor.
     /// </summary>
     public uint LastVoyageReturnUnix(ulong fcId, uint registerTime) =>
-        lastVoyageReturn.TryGetValue(fcId, out var subs) && subs.TryGetValue(registerTime, out var t)
-            ? t
+        lastVoyage.TryGetValue(fcId, out var subs) && subs.TryGetValue(registerTime, out var v)
+            ? v.ReturnTime
             : 0;
+
+    /// <summary>
+    /// The build of the voyage <see cref="LastVoyageReturnUnix"/> identifies,
+    /// as first seen while it was under way — its dispatch build, even when
+    /// the dispatch itself was missed (null = never seen mid-voyage this
+    /// session).
+    /// </summary>
+    public SubBuild? LastVoyageBuild(ulong fcId, uint registerTime) =>
+        lastVoyage.TryGetValue(fcId, out var subs) && subs.TryGetValue(registerTime, out var v)
+            ? v.Build
+            : null;
 
     /// <summary>Game FCs whose workshop we've visited this session (Mapping tab).</summary>
     public IReadOnlyCollection<SeenFc> SeenFcs => seenFcs.Values;
@@ -94,6 +126,10 @@ public sealed unsafe class SubSnapshotService : IDisposable
     /// <summary>All subs last seen for a game FC, for the Mapping tab's sub rows.</summary>
     public IReadOnlyCollection<SubSnapshot> SubsOf(ulong fcId) =>
         known.TryGetValue(fcId, out var subs) ? subs.Values : [];
+
+    /// <summary>A game FC's sector unlocks as last read in its workshop, if any.</summary>
+    public SectorUnlocks? TryGetUnlocks(ulong fcId) =>
+        unlocks.TryGetValue(fcId, out var u) ? u : null;
 
     private void OnFrameworkUpdate(IFramework _)
     {
@@ -142,12 +178,16 @@ public sealed unsafe class SubSnapshotService : IDisposable
             ? existing
             : known[fcId] = [];
 
+        var nowUtc = DateTime.UtcNow;
+        var sawSub = false;
+
         foreach (var sub in housing->WorkshopTerritory->Submersible.Data)
         {
             if (sub.RankId == 0)
                 continue;
 
-            var current = TakeSnapshot(sub);
+            sawSub = true;
+            var current = TakeSnapshot(sub, nowUtc);
 
             // Throttle: nothing changed for this sub → nothing to do.
             // (Explicit comparison — record equality would compare the
@@ -159,13 +199,17 @@ public sealed unsafe class SubSnapshotService : IDisposable
             fcSubs[current.RegisterTime] = current;
 
             // Remember the schedule across the T→0 collection transition
-            // (see lastVoyageReturn) — recorded on baseline and on dispatch.
+            // (see lastVoyage) — recorded on baseline and on dispatch. The
+            // build is kept from the voyage's first sighting, so even a
+            // same-voyage re-read can't replace its dispatch build.
             if (current.ReturnTime != 0)
             {
-                var fcReturns = lastVoyageReturn.TryGetValue(fcId, out var r)
+                var fcVoyages = lastVoyage.TryGetValue(fcId, out var r)
                     ? r
-                    : lastVoyageReturn[fcId] = [];
-                fcReturns[current.RegisterTime] = current.ReturnTime;
+                    : lastVoyage[fcId] = [];
+                if (!fcVoyages.TryGetValue(current.RegisterTime, out var seen)
+                    || seen.ReturnTime != current.ReturnTime)
+                    fcVoyages[current.RegisterTime] = new VoyageSighting(current.ReturnTime, current.Build);
             }
 
             if (prev == null)
@@ -192,10 +236,67 @@ public sealed unsafe class SubSnapshotService : IDisposable
                     fcId,
                     current.RegisterTime,
                     current.Name,
-                    DateTime.UtcNow,
+                    nowUtc,
                     current.ReturnTime,
-                    current.Sectors));
+                    current.Sectors,
+                    current.Build));
             }
+        }
+
+        // Only once the workshop has its subs loaded, like SubmarineTracker,
+        // which reads these in the same place (Plugin.cs, its FC upsert).
+        if (sawSub && nowUtc >= nextUnlockReadUtc)
+        {
+            nextUnlockReadUtc = nowUtc.AddSeconds(UnlockReadIntervalSeconds);
+            ReadUnlocks(fcId, nowUtc);
+        }
+    }
+
+    /// <summary>
+    /// Reads which sectors this workshop has unlocked and explored, with the
+    /// same game calls SubmarineTracker uses, for every SubmarineExploration
+    /// row. An all-locked read means the data isn't there yet and is dropped.
+    /// A failing call (a game-data change) turns the read off for the
+    /// session instead of throwing every few seconds.
+    /// </summary>
+    private void ReadUnlocks(ulong fcId, DateTime nowUtc)
+    {
+        if (unlockReadFailed)
+            return;
+
+        try
+        {
+            var unlocked = new List<uint>();
+            var explored = new List<uint>();
+            foreach (var row in Plugin.DataManager.GetExcelSheet<SubmarineExploration>())
+            {
+                // The game's checks take a byte-sized sector id.
+                if (row.RowId > byte.MaxValue)
+                    continue;
+
+                var point = (byte)row.RowId;
+                if (HousingManager.IsSubmarineExplorationUnlocked(point))
+                    unlocked.Add(row.RowId);
+                if (HousingManager.IsSubmarineExplorationExplored(point))
+                    explored.Add(row.RowId);
+            }
+
+            if (unlocked.Count == 0)
+                return;
+
+            if (unlocks.TryGetValue(fcId, out var prev)
+                && prev.Unlocked.AsSpan().SequenceEqual(CollectionsMarshal.AsSpan(unlocked))
+                && prev.Explored.AsSpan().SequenceEqual(CollectionsMarshal.AsSpan(explored)))
+                return;
+
+            unlocks[fcId] = new SectorUnlocks([.. unlocked], [.. explored], nowUtc);
+            Plugin.Log.Information(
+                $"Workshop sectors read: {unlocked.Count} unlocked, {explored.Count} explored");
+        }
+        catch (Exception ex)
+        {
+            unlockReadFailed = true;
+            Plugin.Log.Error(ex, "Couldn't read the workshop's unlocked sectors; they won't sync this session");
         }
     }
 
@@ -210,7 +311,7 @@ public sealed unsafe class SubSnapshotService : IDisposable
         && a.BridgeId == b.BridgeId
         && a.Sectors.AsSpan().SequenceEqual(b.Sectors);
 
-    private static SubSnapshot TakeSnapshot(HousingWorkshopSubmersibleSubData sub)
+    private static SubSnapshot TakeSnapshot(HousingWorkshopSubmersibleSubData sub, DateTime nowUtc)
     {
         var sectors = new List<uint>();
         foreach (var point in sub.CurrentExplorationPoints)
@@ -228,7 +329,8 @@ public sealed unsafe class SubSnapshotService : IDisposable
             sub.HullId,
             sub.SternId,
             sub.BowId,
-            sub.BridgeId);
+            sub.BridgeId,
+            nowUtc);
     }
 
     /// <summary>Sub names live in a fixed NUL-padded byte buffer (SeString bytes).</summary>

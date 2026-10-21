@@ -1229,7 +1229,8 @@ public class MainWindow : Window, IDisposable
 
         return simulator.SimulateDispatch(
             fcId, (uint)simRegisterTime, simSubName,
-            CurrentMapStart(), simRoute, simDurationMinutes, dispatchedUtcOverride: null);
+            CurrentMapStart(), simRoute, simDurationMinutes, dispatchedUtcOverride: null,
+            build: snapshots.TryGetLastSnapshot(fcId, (uint)simRegisterTime)?.Build);
     }
 
     public string? RunSimCollect(bool forLastDispatch)

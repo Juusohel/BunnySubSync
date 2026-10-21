@@ -81,6 +81,25 @@ public sealed class PushRow
     [JsonPropertyName("ceruleum_tanks")] public int CeruleumTanks { get; set; }
     [JsonPropertyName("notes")] public string? Notes { get; set; }
     [JsonPropertyName("loot")] public List<PushLoot> Loot { get; set; } = new();
+
+    // The sub's build when it was dispatched; null when the plugin didn't see
+    // it. The site keeps the first build it gets for a voyage.
+    [JsonPropertyName("build")] public PushBuild? Build { get; set; }
+
+    // The voyage's raw SubmarineExploration row ids, in visit order. Route
+    // letters are relative to each map's start, so the same letters name
+    // different sectors on different maps; these ids don't.
+    [JsonPropertyName("sector_ids")] public uint[]? SectorIds { get; set; }
+}
+
+// Rank plus the four raw SubmarinePart row ids.
+public sealed class PushBuild
+{
+    [JsonPropertyName("rank")] public ushort Rank { get; set; }
+    [JsonPropertyName("hull_part_id")] public ushort HullPartId { get; set; }
+    [JsonPropertyName("stern_part_id")] public ushort SternPartId { get; set; }
+    [JsonPropertyName("bow_part_id")] public ushort BowPartId { get; set; }
+    [JsonPropertyName("bridge_part_id")] public ushort BridgePartId { get; set; }
 }
 
 public sealed class PushLoot
@@ -230,4 +249,53 @@ public sealed class GameDataUploadResponse
     [JsonPropertyName("game_version")] public string? GameVersion { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
+}
+
+// Body of POST /api/plugin/v1/build: the current build of linked subs whose
+// rank or parts changed, and/or the workshop's sector unlocks, as read at
+// observed_at. The site keeps a sub's most recently observed build, so a late
+// retry can't overwrite a newer one; unlocks only ever add up.
+public sealed class BuildPushRequest
+{
+    [JsonPropertyName("observed_at")] public DateTimeOffset ObservedAt { get; set; }
+    [JsonPropertyName("submarines")] public List<BuildPushSubmarine> Submarines { get; set; } = new();
+    [JsonPropertyName("unlocks")] public BuildPushUnlocks? Unlocks { get; set; }
+}
+
+public sealed class BuildPushSubmarine
+{
+    [JsonPropertyName("submarine_id")] public int SubmarineId { get; set; }
+    [JsonPropertyName("rank")] public ushort Rank { get; set; }
+    [JsonPropertyName("hull_part_id")] public ushort HullPartId { get; set; }
+    [JsonPropertyName("stern_part_id")] public ushort SternPartId { get; set; }
+    [JsonPropertyName("bow_part_id")] public ushort BowPartId { get; set; }
+    [JsonPropertyName("bridge_part_id")] public ushort BridgePartId { get; set; }
+}
+
+// Sectors are SubmarineExploration row ids; the unlocked set is never empty.
+public sealed class BuildPushUnlocks
+{
+    [JsonPropertyName("free_company_id")] public int FreeCompanyId { get; set; }
+    [JsonPropertyName("unlocked_sector_ids")] public uint[] UnlockedSectorIds { get; set; } = [];
+    [JsonPropertyName("explored_sector_ids")] public uint[] ExploredSectorIds { get; set; } = [];
+}
+
+// 200 body. Sub status: "updated" | "stale" (the site already has a newer
+// build) | "not_found" (no such sub, or not one this account may write).
+// Unlocks status: "updated" | "unchanged" | "not_found".
+public sealed class BuildPushResponse
+{
+    [JsonPropertyName("submarines")] public List<BuildPushSubmarineResult>? Submarines { get; set; }
+    [JsonPropertyName("unlocks")] public BuildPushUnlocksResult? Unlocks { get; set; }
+}
+
+public sealed class BuildPushSubmarineResult
+{
+    [JsonPropertyName("submarine_id")] public int SubmarineId { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+}
+
+public sealed class BuildPushUnlocksResult
+{
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
 }

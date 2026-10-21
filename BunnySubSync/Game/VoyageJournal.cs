@@ -41,6 +41,13 @@ public sealed class JournalEntry
     public DateTime DispatchedUtc { get; set; }
     public uint ScheduledReturnUnix { get; set; }
     public uint[] Sectors { get; set; } = [];
+
+    /// <summary>The sub's build when this voyage was dispatched, so the
+    /// collection row carries it even if the dispatch row was never sent. Null
+    /// when unknown: a missed dispatch never seen under way, or an entry
+    /// recorded by a version that didn't keep it.</summary>
+    public SubBuild? Build { get; set; }
+
     public OutboxState State { get; set; }
     public string? FailureMessage { get; set; }
     public PushRow? BuiltRow { get; set; }
@@ -115,6 +122,7 @@ public sealed class VoyageJournal
             DispatchedUtc = ev.DispatchedUtc,
             ScheduledReturnUnix = ev.ScheduledReturnUnix,
             Sectors = ev.Sectors,
+            Build = ev.Build,
             State = OutboxState.PendingCollection,
             Simulated = ev.Simulated,
         };
@@ -128,7 +136,8 @@ public sealed class VoyageJournal
         return entry;
     }
 
-    public JournalEntry AppendMissedDispatch(VoyageCompleted ev, uint lastKnownReturnUnix, string subName)
+    public JournalEntry AppendMissedDispatch(
+        VoyageCompleted ev, uint lastKnownReturnUnix, SubBuild? lastKnownBuild, string subName)
     {
         var entry = new JournalEntry
         {
@@ -137,6 +146,7 @@ public sealed class VoyageJournal
             SubName = subName,
             ScheduledReturnUnix = lastKnownReturnUnix,
             Sectors = ev.Sectors,
+            Build = lastKnownBuild,
             State = OutboxState.Failed,
             FailureMessage = "missed dispatch — push manually",
             CollectedUtc = ev.CollectedUtc,

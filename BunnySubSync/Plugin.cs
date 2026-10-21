@@ -43,6 +43,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly Outbox outbox;
     private readonly BackfillService backfillService;
     private readonly GameDataUploader gameDataUploader;
+    private readonly BuildSync buildSync;
 
     public Plugin()
     {
@@ -53,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
         subSnapshots = new SubSnapshotService(voyageEvents);
         voyageAssembler = new VoyageAssembler(voyageEvents, voyageJournal, subSnapshots, Configuration);
         outbox = new Outbox(voyageEvents, voyageJournal, Configuration);
+        buildSync = new BuildSync(subSnapshots, Configuration);
         voyageResultHook = new VoyageResultHook(voyageEvents);
         voyageSimulator = new VoyageSimulator(voyageEvents);
         syncService = new SyncService(Configuration);
@@ -89,6 +91,7 @@ public sealed class Plugin : IDalamudPlugin
         subSnapshots.Dispose();
         voyageAssembler.Dispose();
         outbox.Dispose();
+        buildSync.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
     }

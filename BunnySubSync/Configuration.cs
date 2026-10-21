@@ -10,6 +10,10 @@ public class SubLink
     public int? PlatformSubmarineId { get; set; }
     public string LastKnownName { get; set; } = string.Empty;
     public bool Enabled { get; set; } = true;
+
+    // The build last sent to the site, with the site sub it went to; any
+    // other current build or link is sent again.
+    public string? PushedBuild { get; set; }
 }
 
 [Serializable]
@@ -18,6 +22,9 @@ public class FcMapping
     public bool Enabled { get; set; }
     public int? PlatformFcId { get; set; }
     public Dictionary<uint, SubLink> Subs { get; set; } = new();
+
+    // The sector unlocks last sent to the site, with the site FC they went to.
+    public string? PushedUnlocks { get; set; }
 }
 
 [Serializable]
