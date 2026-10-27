@@ -11,6 +11,10 @@ namespace BunnySubSync.Api;
 
 public sealed class UnauthorizedException(string message) : Exception(message);
 
+/// <summary>Outcome of a game-data upload: 200, 403 and 409 are all normal
+/// answers there, so the status comes back instead of throwing.</summary>
+public sealed record GameDataUploadResult(HttpStatusCode StatusCode, GameDataUploadResponse? Body);
+
 public sealed class ApiClient : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -65,6 +69,47 @@ public sealed class ApiClient : IDisposable
 
         var result = await response.Content.ReadFromJsonAsync<PushResponse>(JsonOptions).ConfigureAwait(false);
         return result ?? throw new JsonException("Empty push response body.");
+    }
+
+    /// <summary>POST the game-data dump. Throws only on transport failure or a
+    /// rejected token; every other answer is returned for the caller to read.</summary>
+    public async Task<GameDataUploadResult> UploadGameDataAsync(GameDataUpload upload)
+    {
+        using var response = await client.PostAsJsonAsync("api/plugin/v1/gamedata", upload, JsonOptions).ConfigureAwait(false);
+        await ThrowIfUnauthorizedAsync(response).ConfigureAwait(false);
+
+        GameDataUploadResponse? body = null;
+        try
+        {
+            body = await response.Content.ReadFromJsonAsync<GameDataUploadResponse>(JsonOptions).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            // Not our JSON (a proxy error page, say) — the status code is what matters.
+        }
+
+        return new GameDataUploadResult(response.StatusCode, body);
+    }
+
+    /// <summary>POST changed sub builds and/or sector unlocks. Throws on a
+    /// rejected token, an error status or a transport failure. Returns null
+    /// when a 200 isn't the server's own answer (a site too old to have this
+    /// endpoint), so nothing is marked as sent.</summary>
+    public async Task<BuildPushResponse?> PushBuildAsync(BuildPushRequest request)
+    {
+        using var response = await client.PostAsJsonAsync("api/plugin/v1/build", request, JsonOptions).ConfigureAwait(false);
+        await ThrowIfUnauthorizedAsync(response).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<BuildPushResponse>(JsonOptions).ConfigureAwait(false);
+            return result?.Submarines == null ? null : result;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private static async Task ThrowIfUnauthorizedAsync(HttpResponseMessage response)

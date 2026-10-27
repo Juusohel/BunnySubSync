@@ -42,6 +42,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly SyncService syncService;
     private readonly Outbox outbox;
     private readonly BackfillService backfillService;
+    private readonly GameDataUploader gameDataUploader;
+    private readonly BuildSync buildSync;
 
     public Plugin()
     {
@@ -52,14 +54,16 @@ public sealed class Plugin : IDalamudPlugin
         subSnapshots = new SubSnapshotService(voyageEvents);
         voyageAssembler = new VoyageAssembler(voyageEvents, voyageJournal, subSnapshots, Configuration);
         outbox = new Outbox(voyageEvents, voyageJournal, Configuration);
+        buildSync = new BuildSync(subSnapshots, Configuration);
         voyageResultHook = new VoyageResultHook(voyageEvents);
         voyageSimulator = new VoyageSimulator(voyageEvents);
         syncService = new SyncService(Configuration);
         backfillService = new BackfillService(Configuration, syncService);
+        gameDataUploader = new GameDataUploader(Configuration);
 
         MainWindow = new MainWindow(
             this, voyageJournal, voyageAssembler, voyageSimulator, subSnapshots, syncService, outbox,
-            backfillService);
+            backfillService, gameDataUploader);
         WindowSystem.AddWindow(MainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -69,6 +73,9 @@ public sealed class Plugin : IDalamudPlugin
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
+
+        // Once per game version, off the framework thread; never blocks sync.
+        gameDataUploader.UploadIfNewVersion();
     }
 
     public void Dispose()
@@ -84,6 +91,7 @@ public sealed class Plugin : IDalamudPlugin
         subSnapshots.Dispose();
         voyageAssembler.Dispose();
         outbox.Dispose();
+        buildSync.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
     }

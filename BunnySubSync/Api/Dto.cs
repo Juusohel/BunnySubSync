@@ -81,6 +81,25 @@ public sealed class PushRow
     [JsonPropertyName("ceruleum_tanks")] public int CeruleumTanks { get; set; }
     [JsonPropertyName("notes")] public string? Notes { get; set; }
     [JsonPropertyName("loot")] public List<PushLoot> Loot { get; set; } = new();
+
+    // The sub's build when it was dispatched; null when the plugin didn't see
+    // it. The site keeps the first build it gets for a voyage.
+    [JsonPropertyName("build")] public PushBuild? Build { get; set; }
+
+    // The voyage's raw SubmarineExploration row ids, in visit order. Route
+    // letters are relative to each map's start, so the same letters name
+    // different sectors on different maps; these ids don't.
+    [JsonPropertyName("sector_ids")] public uint[]? SectorIds { get; set; }
+}
+
+// Rank plus the four raw SubmarinePart row ids.
+public sealed class PushBuild
+{
+    [JsonPropertyName("rank")] public ushort Rank { get; set; }
+    [JsonPropertyName("hull_part_id")] public ushort HullPartId { get; set; }
+    [JsonPropertyName("stern_part_id")] public ushort SternPartId { get; set; }
+    [JsonPropertyName("bow_part_id")] public ushort BowPartId { get; set; }
+    [JsonPropertyName("bridge_part_id")] public ushort BridgePartId { get; set; }
 }
 
 public sealed class PushLoot
@@ -157,4 +176,126 @@ public sealed class StatsRoute
     [JsonPropertyName("voyages")] public long Voyages { get; set; }
     [JsonPropertyName("avg_gil")] public double AvgGil { get; set; }
     [JsonPropertyName("gil_per_route_hour")] public double GilPerRouteHour { get; set; }
+}
+
+// Body of POST /api/plugin/v1/gamedata — the three submarine sheets,
+// dumped once per game version and read in English whatever the client
+// language. The field set is everything SubmarineTracker's formulas read; the
+// server's route planner ports those formulas, so a field dropped here breaks
+// it silently. Integer widths are the sheets' own.
+public sealed class GameDataUpload
+{
+    [JsonPropertyName("game_version")] public string GameVersion { get; set; } = string.Empty;
+    [JsonPropertyName("exploration")] public List<GameDataSector> Exploration { get; set; } = new();
+    [JsonPropertyName("parts")] public List<GameDataPart> Parts { get; set; } = new();
+    [JsonPropertyName("ranks")] public List<GameDataRank> Ranks { get; set; } = new();
+}
+
+public sealed class GameDataSector
+{
+    [JsonPropertyName("sector_id")] public ushort SectorId { get; set; }
+    [JsonPropertyName("map_id")] public ushort MapId { get; set; }
+    [JsonPropertyName("map_name")] public string MapName { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    // Route letter relative to the map's start (as in pushed route strings);
+    // null on the map's starting point, which has no letter.
+    [JsonPropertyName("letter")] public string? Letter { get; set; }
+    [JsonPropertyName("starting_point")] public bool StartingPoint { get; set; }
+    [JsonPropertyName("rank_required")] public byte RankRequired { get; set; }
+    [JsonPropertyName("exp_reward")] public uint ExpReward { get; set; }
+    [JsonPropertyName("x")] public short X { get; set; }
+    [JsonPropertyName("y")] public short Y { get; set; }
+    [JsonPropertyName("z")] public short Z { get; set; }
+    [JsonPropertyName("survey_distance")] public byte SurveyDistance { get; set; }
+    [JsonPropertyName("survey_duration_min")] public ushort SurveyDurationMin { get; set; }
+    [JsonPropertyName("ceruleum_tank_req")] public byte CeruleumTankReq { get; set; }
+}
+
+public sealed class GameDataPart
+{
+    [JsonPropertyName("part_id")] public ushort PartId { get; set; }
+    // The part's item name; null for a part id the exporter has no item for.
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    // Raw sheet values. Slot: 0 hull, 1 stern, 2 bow, 3 bridge.
+    [JsonPropertyName("slot")] public byte Slot { get; set; }
+    [JsonPropertyName("class")] public ushort Class { get; set; }
+    [JsonPropertyName("rank")] public byte Rank { get; set; }
+    [JsonPropertyName("components")] public byte Components { get; set; }
+    [JsonPropertyName("repair_materials")] public byte RepairMaterials { get; set; }
+    [JsonPropertyName("surveillance")] public short Surveillance { get; set; }
+    [JsonPropertyName("retrieval")] public short Retrieval { get; set; }
+    [JsonPropertyName("speed")] public short Speed { get; set; }
+    [JsonPropertyName("range")] public short Range { get; set; }
+    [JsonPropertyName("favor")] public short Favor { get; set; }
+}
+
+public sealed class GameDataRank
+{
+    [JsonPropertyName("rank")] public ushort Rank { get; set; }
+    [JsonPropertyName("exp_to_next")] public uint ExpToNext { get; set; }
+    [JsonPropertyName("capacity")] public ushort Capacity { get; set; }
+    [JsonPropertyName("surveillance_bonus")] public byte SurveillanceBonus { get; set; }
+    [JsonPropertyName("retrieval_bonus")] public byte RetrievalBonus { get; set; }
+    [JsonPropertyName("speed_bonus")] public byte SpeedBonus { get; set; }
+    [JsonPropertyName("range_bonus")] public byte RangeBonus { get; set; }
+    [JsonPropertyName("favor_bonus")] public byte FavorBonus { get; set; }
+}
+
+// 200 body: "created" (a new version, now current) or "unchanged" (already
+// stored with the same numbers). 403/409 bodies carry error + message instead.
+public sealed class GameDataUploadResponse
+{
+    [JsonPropertyName("status")] public string? Status { get; set; }
+    [JsonPropertyName("game_version")] public string? GameVersion { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("message")] public string? Message { get; set; }
+}
+
+// Body of POST /api/plugin/v1/build: the current build of linked subs whose
+// rank or parts changed, and/or the workshop's sector unlocks, as read at
+// observed_at. The site keeps a sub's most recently observed build, so a late
+// retry can't overwrite a newer one; unlocks only ever add up.
+public sealed class BuildPushRequest
+{
+    [JsonPropertyName("observed_at")] public DateTimeOffset ObservedAt { get; set; }
+    [JsonPropertyName("submarines")] public List<BuildPushSubmarine> Submarines { get; set; } = new();
+    [JsonPropertyName("unlocks")] public BuildPushUnlocks? Unlocks { get; set; }
+}
+
+public sealed class BuildPushSubmarine
+{
+    [JsonPropertyName("submarine_id")] public int SubmarineId { get; set; }
+    [JsonPropertyName("rank")] public ushort Rank { get; set; }
+    [JsonPropertyName("hull_part_id")] public ushort HullPartId { get; set; }
+    [JsonPropertyName("stern_part_id")] public ushort SternPartId { get; set; }
+    [JsonPropertyName("bow_part_id")] public ushort BowPartId { get; set; }
+    [JsonPropertyName("bridge_part_id")] public ushort BridgePartId { get; set; }
+}
+
+// Sectors are SubmarineExploration row ids; the unlocked set is never empty.
+public sealed class BuildPushUnlocks
+{
+    [JsonPropertyName("free_company_id")] public int FreeCompanyId { get; set; }
+    [JsonPropertyName("unlocked_sector_ids")] public uint[] UnlockedSectorIds { get; set; } = [];
+    [JsonPropertyName("explored_sector_ids")] public uint[] ExploredSectorIds { get; set; } = [];
+}
+
+// 200 body. Sub status: "updated" | "stale" (the site already has a newer
+// build) | "not_found" (no such sub, or not one this account may write).
+// Unlocks status: "updated" | "unchanged" | "not_found".
+public sealed class BuildPushResponse
+{
+    [JsonPropertyName("submarines")] public List<BuildPushSubmarineResult>? Submarines { get; set; }
+    [JsonPropertyName("unlocks")] public BuildPushUnlocksResult? Unlocks { get; set; }
+}
+
+public sealed class BuildPushSubmarineResult
+{
+    [JsonPropertyName("submarine_id")] public int SubmarineId { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+}
+
+public sealed class BuildPushUnlocksResult
+{
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
 }

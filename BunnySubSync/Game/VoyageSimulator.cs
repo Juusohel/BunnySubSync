@@ -29,10 +29,12 @@ public sealed class VoyageSimulator
     /// (for last dispatch)" exercises the dispatch→complete lifecycle.</summary>
     public SubDispatched? LastDispatch { get; private set; }
 
+    /// <param name="build">The sub's real build when the identity is a sub the
+    /// workshop has shown; null for a fabricated one (never invent a build).</param>
     /// <returns>An error string, or null on success.</returns>
     public string? SimulateDispatch(
         ulong fcId, uint registerTime, string subName, uint mapStartSector, string routeLetters,
-        int durationMinutes, DateTime? dispatchedUtcOverride)
+        int durationMinutes, DateTime? dispatchedUtcOverride, SubBuild? build)
     {
         uint[] sectors;
         try
@@ -54,7 +56,7 @@ public sealed class VoyageSimulator
                               .AddMinutes(durationMinutes).ToUnixTimeSeconds();
 
         var ev = new SubDispatched(
-            fcId, registerTime, subName, dispatchedUtc, scheduledReturn, sectors, Simulated: true);
+            fcId, registerTime, subName, dispatchedUtc, scheduledReturn, sectors, build, Simulated: true);
         LastDispatch = ev;
         events.RaiseDispatched(ev);
         return null;

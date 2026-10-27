@@ -13,6 +13,12 @@ namespace BunnySubSync.Game;
 
 public sealed record LootLine(uint FfxivItemId, int Quantity, bool Hq);
 
+/// <summary>A sub's build as the workshop reports it: rank plus the four raw
+/// SubmarinePart row ids. Parts can't be swapped while a sub is out and rank
+/// only changes on collection, so a build seen mid-voyage is the build that
+/// voyage was dispatched with.</summary>
+public sealed record SubBuild(ushort Rank, ushort Hull, ushort Stern, ushort Bow, ushort Bridge);
+
 public sealed record SubDispatched(
     ulong FcId,
     uint SubRegisterTime,
@@ -20,6 +26,7 @@ public sealed record SubDispatched(
     DateTime DispatchedUtc,
     uint ScheduledReturnUnix,
     uint[] Sectors,
+    SubBuild? Build,
     bool Simulated = false);
 
 public sealed record VoyageCompleted(

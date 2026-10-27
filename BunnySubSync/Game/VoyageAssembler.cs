@@ -57,6 +57,7 @@ public sealed class VoyageAssembler : IDisposable
                 collectedAtUtc: null,
                 durationMinutes: durationMinutes,
                 sectors: ev.Sectors,
+                build: ev.Build,
                 loot: [],
                 notes: ev.Simulated ? "[SIM] simulated voyage" : null);
             journal.Update(entry, e => e.DispatchRow = dispatchRow);
@@ -124,6 +125,7 @@ public sealed class VoyageAssembler : IDisposable
             collectedAtUtc: ev.CollectedUtc,
             durationMinutes: RouteDurationMinutes(entry.ScheduledReturnUnix, entry.DispatchedUtc),
             sectors: ev.Sectors,
+            build: entry.Build,
             loot: ev.Loot,
             notes: ev.Simulated ? "[SIM] simulated voyage" : null);
 
@@ -145,10 +147,13 @@ public sealed class VoyageAssembler : IDisposable
         // installed mid-voyage, or the journal was lost. Anchor on the last
         // non-zero observed ReturnTime — the live snapshot's is already 0 by
         // the time the result packet lands.
+        // The same sighting also holds the build this voyage was dispatched
+        // with (simulated voyages don't borrow a real sub's).
         var lastReturn = snapshots.LastVoyageReturnUnix(ev.FcId, ev.SubRegisterTime);
         var entry = journal.AppendMissedDispatch(
             ev,
             lastKnownReturnUnix: lastReturn,
+            lastKnownBuild: ev.Simulated ? null : snapshots.LastVoyageBuild(ev.FcId, ev.SubRegisterTime),
             subName: ev.SubName);
 
         // Schedule-anchored auto-recovery: with the voyage's actual scheduled
@@ -235,6 +240,7 @@ public sealed class VoyageAssembler : IDisposable
             entry.CollectedUtc.Value,
             durationMinutes: (int)(durationSeconds / 60),
             sectors: entry.Sectors,
+            build: entry.Build,
             loot: entry.PendingLoot,
             notes: notes,
             deployedAtEstimated: true);
@@ -260,6 +266,7 @@ public sealed class VoyageAssembler : IDisposable
         DateTime? collectedAtUtc,
         int durationMinutes,
         uint[] sectors,
+        SubBuild? build,
         List<LootLine> loot,
         string? notes,
         bool deployedAtEstimated = false)
@@ -281,6 +288,19 @@ public sealed class VoyageAssembler : IDisposable
             CeruleumTanks = SectorMath.TankCost(sectors),
             Notes = notes,
             Loot = AggregateLoot(loot),
+            // The ids the route letters above are derived from, and the
+            // dispatch build: the site can't work either out from the route.
+            SectorIds = sectors.Length > 0 ? sectors : null,
+            Build = build is { } b
+                ? new PushBuild
+                {
+                    Rank = b.Rank,
+                    HullPartId = b.Hull,
+                    SternPartId = b.Stern,
+                    BowPartId = b.Bow,
+                    BridgePartId = b.Bridge,
+                }
+                : null,
         };
     }
 
