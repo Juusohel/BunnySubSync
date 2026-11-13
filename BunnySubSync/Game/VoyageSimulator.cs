@@ -108,7 +108,29 @@ public sealed class VoyageSimulator
             collectedUtcOverride ?? DateTime.UtcNow,
             lootLines,
             sectors,
-            Simulated: true));
+            Simulated: true,
+            SectorResults: SimulatedSectorResults(sectors, lootLines)));
         return null;
+    }
+
+    /// <summary>Lays the loot lines out per sector the way a real result
+    /// arrives: one primary line per sector in order, then the remaining
+    /// lines as the first sectors' additional items. Null when the lines
+    /// can't fill every sector once (or there are more than two per sector),
+    /// as from a client that doesn't capture it. Verdict lines and EXP are
+    /// 0: there's nothing to simulate them from.</summary>
+    private static List<SectorResult>? SimulatedSectorResults(uint[] sectors, List<LootLine> lines)
+    {
+        if (lines.Count < sectors.Length || lines.Count > sectors.Length * 2)
+            return null;
+
+        static SectorLoot Slot(LootLine l) => new(l.FfxivItemId, l.Quantity, l.Hq, 0, 0);
+        return [.. sectors.Select((sector, i) => new SectorResult(
+            sector,
+            UnlockedSectorId: 0,
+            FavorLine: 0,
+            ExpGained: 0,
+            Slot(lines[i]),
+            sectors.Length + i < lines.Count ? Slot(lines[sectors.Length + i]) : null))];
     }
 }

@@ -15,11 +15,20 @@ namespace BunnySubSync.Game;
 /// /api/plugin/v1/build. Below the seam: it reads the snapshot service's
 /// cache, never game memory.
 ///
-/// Only changes are sent. What was last sent successfully is remembered per
-/// sub and per FC in the config, together with the site id it went to, so a
-/// plugin reload or a second computer doesn't resend, and a re-link sends
-/// again. Each push carries the time its state was read: the site keeps the
-/// most recently observed build, so a late retry can't overwrite a newer one.
+/// Builds: only changes are sent. The build last sent is remembered per sub
+/// in the config, together with the site id it went to, so a plugin reload or
+/// a second computer doesn't resend, and a re-link sends again. Each push
+/// carries the time its state was read: the site keeps the most recently
+/// observed build, so a late retry can't overwrite a newer one.
+///
+/// Unlocks: sent once per session (then again only if they change). The site
+/// keeps the union of everything sent, so a resend is harmless, and it's what
+/// refills the site's copy after the FC owner resets it.
+///
+/// A "not_found" answer (no such sub/FC, or not writable by this account) is
+/// remembered for this session only, so it isn't retried every few seconds,
+/// and the next session tries again: a viewer promoted to member, or a fixed
+/// link, then gets through.
 ///
 /// Never blocks or touches voyage sync: pushes run on the thread pool,
 /// failures back off (1, 2, 4 … 30 min), and a rejected token only stops this
@@ -38,6 +47,11 @@ public sealed class BuildSync : IDisposable
 
     // Site sub ids already warned about being linked twice (framework thread).
     private readonly HashSet<int> warnedShared = [];
+
+    // Per session, framework thread: the unlocks each site FC has answered,
+    // and the build keys the site answered "not_found".
+    private readonly Dictionary<int, string> unlocksAnswered = [];
+    private readonly HashSet<string> buildsNotFound = [];
 
     private int pushing; // 0/1 via Interlocked
     private DateTime nextCheckUtc = DateTime.MinValue;
@@ -61,7 +75,7 @@ public sealed class BuildSync : IDisposable
     {
         public DateTime ObservedUtc { get; } = observedUtc;
         public List<(SubLink Link, string Key, BuildPushSubmarine Wire)> Subs { get; } = [];
-        public (FcMapping Mapping, string Key, BuildPushUnlocks Wire)? Unlocks { get; set; }
+        public (string Key, BuildPushUnlocks Wire)? Unlocks { get; set; }
     }
 
     private void OnTick(IFramework framework)
@@ -139,7 +153,7 @@ public sealed class BuildSync : IDisposable
                 }
 
                 var key = $"{submarineId}:{snap.RankId}:{snap.HullId}:{snap.SternId}:{snap.BowId}:{snap.BridgeId}";
-                if (link.PushedBuild == key)
+                if (link.PushedBuild == key || buildsNotFound.Contains(key))
                     continue;
 
                 At(snap.TakenUtc).Subs.Add((link, key, new BuildPushSubmarine
@@ -156,9 +170,9 @@ public sealed class BuildSync : IDisposable
             if (snapshots.TryGetUnlocks(fc.FcId) is { } unlocks)
             {
                 var key = $"{platformFcId}:{string.Join(',', unlocks.Unlocked)}:{string.Join(',', unlocks.Explored)}";
-                if (mapping.PushedUnlocks != key)
+                if (!unlocksAnswered.TryGetValue(platformFcId, out var answered) || answered != key)
                 {
-                    At(unlocks.TakenUtc).Unlocks = (mapping, key, new BuildPushUnlocks
+                    At(unlocks.TakenUtc).Unlocks = (key, new BuildPushUnlocks
                     {
                         FreeCompanyId = platformFcId,
                         UnlockedSectorIds = unlocks.Unlocked,
@@ -212,9 +226,10 @@ public sealed class BuildSync : IDisposable
         }
     }
 
-    /// <summary>Framework thread: remember what the site now has. Every
-    /// answered sub counts as sent, including "stale" (the site has newer) and
-    /// "not_found" (retrying wouldn't help until the link changes).</summary>
+    /// <summary>Framework thread: remember what the site now has. An answered
+    /// sub counts as sent, including "stale" (the site has newer), except
+    /// "not_found", which is only skipped for the rest of this session.
+    /// Unlocks count as answered for this session whatever the status.</summary>
     private void MarkSent(Batch batch, BuildPushResponse response)
     {
         var answered = response.Submarines!
@@ -227,22 +242,27 @@ public sealed class BuildSync : IDisposable
             if (!answered.TryGetValue(wire.SubmarineId, out var status))
                 continue;
 
+            if (status == "not_found")
+            {
+                buildsNotFound.Add(key);
+                Plugin.Log.Warning(
+                    $"Build sync: site submarine #{wire.SubmarineId} doesn't exist or isn't writable by this account; check the Mapping tab (retried next session)");
+                continue;
+            }
+
             link.PushedBuild = key;
             if (status == "updated")
                 updated++;
-            else if (status == "not_found")
-                Plugin.Log.Warning(
-                    $"Build sync: site submarine #{wire.SubmarineId} doesn't exist or isn't writable by this account; check the Mapping tab");
         }
 
         var unlocksNote = "";
         if (batch.Unlocks is { } unlocks && response.Unlocks?.Status is { } unlockStatus)
         {
-            unlocks.Mapping.PushedUnlocks = unlocks.Key;
+            unlocksAnswered[unlocks.Wire.FreeCompanyId] = unlocks.Key;
             unlocksNote = $", sector unlocks {unlockStatus}";
             if (unlockStatus == "not_found")
                 Plugin.Log.Warning(
-                    $"Build sync: site FC #{unlocks.Wire.FreeCompanyId} doesn't exist or isn't writable by this account; check the Mapping tab");
+                    $"Build sync: site FC #{unlocks.Wire.FreeCompanyId} doesn't exist or isn't writable by this account; check the Mapping tab (retried next session)");
         }
 
         configuration.Save();

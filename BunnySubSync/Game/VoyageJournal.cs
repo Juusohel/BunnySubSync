@@ -57,6 +57,12 @@ public sealed class JournalEntry
     /// "Estimate &amp; queue" action can still build the full row later.</summary>
     public List<LootLine>? PendingLoot { get; set; }
 
+    /// <summary>The voyage result per sector, raw, as the game reported it at
+    /// collection, so a row built later still carries it. Null before
+    /// collection, and on entries recorded by a version that didn't keep
+    /// it.</summary>
+    public List<SectorResult>? SectorResults { get; set; }
+
     public bool Simulated { get; set; }
 
     // --- Outbox fields ------------------------------------------------------
@@ -151,6 +157,7 @@ public sealed class VoyageJournal
             FailureMessage = "missed dispatch — push manually",
             CollectedUtc = ev.CollectedUtc,
             PendingLoot = ev.Loot,
+            SectorResults = ev.SectorResults,
             Simulated = ev.Simulated,
         };
 
