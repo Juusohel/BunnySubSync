@@ -90,6 +90,45 @@ public sealed class PushRow
     // letters are relative to each map's start, so the same letters name
     // different sectors on different maps; these ids don't.
     [JsonPropertyName("sector_ids")] public uint[]? SectorIds { get; set; }
+
+    // Collection rows only: the result per sector, in visit order. `loot`
+    // above is the same items summed per voyage; this keeps which sector gave
+    // what and the game's verdict lines. Null when it wasn't captured.
+    [JsonPropertyName("sector_results")] public List<PushSectorResult>? SectorResults { get; set; }
+}
+
+public sealed class PushSectorResult
+{
+    [JsonPropertyName("sector_id")] public uint SectorId { get; set; }
+    // 0 = this sector unlocked nothing.
+    [JsonPropertyName("unlocked_sector_id")] public uint UnlockedSectorId { get; set; }
+    [JsonPropertyName("favor_line")] public uint FavorLine { get; set; }
+    [JsonPropertyName("exp_gained")] public uint ExpGained { get; set; }
+    [JsonPropertyName("primary")] public PushSectorItem Primary { get; set; } = new();
+    [JsonPropertyName("additional")] public PushSectorItem? Additional { get; set; }
+    // The rest of the game's entry, unchanged. Null when it wasn't read.
+    [JsonPropertyName("raw")] public PushSectorRaw? Raw { get; set; }
+}
+
+public sealed class PushSectorRaw
+{
+    [JsonPropertyName("point_rating")] public uint PointRating { get; set; }
+    [JsonPropertyName("first_exploration")] public bool FirstExploration { get; set; }
+    [JsonPropertyName("additional_submarine_unlocked")] public bool AdditionalSubmarineUnlocked { get; set; }
+    [JsonPropertyName("double_dip")] public bool DoubleDip { get; set; }
+    [JsonPropertyName("discovered_line_primary")] public uint DiscoveredLinePrimary { get; set; }
+    [JsonPropertyName("discovered_line_additional")] public uint DiscoveredLineAdditional { get; set; }
+    [JsonPropertyName("survey_line_additional")] public uint SurveyLineAdditional { get; set; }
+    [JsonPropertyName("yield_line_additional")] public uint YieldLineAdditional { get; set; }
+}
+
+public sealed class PushSectorItem
+{
+    [JsonPropertyName("item_id")] public uint ItemId { get; set; }
+    [JsonPropertyName("quantity")] public int Quantity { get; set; }
+    [JsonPropertyName("hq")] public bool Hq { get; set; }
+    [JsonPropertyName("survey_line")] public uint SurveyLine { get; set; }
+    [JsonPropertyName("yield_line")] public uint YieldLine { get; set; }
 }
 
 // Rank plus the four raw SubmarinePart row ids.

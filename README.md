@@ -103,6 +103,12 @@ stores returns).
   visits; for linked FCs, which sectors the workshop has unlocked and
   explored. The site shows the build, keeps rank and build in step with the
   game, and uses the sectors for the route planner.
+- With each collected voyage it also sends the result window sector by
+  sector: what each sector returned, the EXP it gave, any sector it unlocked,
+  and the game's surveillance, retrieval and favor outcome lines, plus the
+  rest of each sector's result entry as the game reports it (such as the
+  sector's rating). The loot totals are unchanged; the per-sector detail is
+  kept for future loot statistics.
 
 ## Building from source
 

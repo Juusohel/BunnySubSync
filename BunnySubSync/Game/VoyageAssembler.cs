@@ -127,12 +127,14 @@ public sealed class VoyageAssembler : IDisposable
             sectors: ev.Sectors,
             build: entry.Build,
             loot: ev.Loot,
-            notes: ev.Simulated ? "[SIM] simulated voyage" : null);
+            notes: ev.Simulated ? "[SIM] simulated voyage" : null,
+            sectorResults: ev.SectorResults);
 
         journal.Update(entry, e =>
         {
             e.State = OutboxState.Queued;
             e.CollectedUtc = ev.CollectedUtc;
+            e.SectorResults = ev.SectorResults;
             e.BuiltRow = row;
         });
 
@@ -243,7 +245,8 @@ public sealed class VoyageAssembler : IDisposable
             build: entry.Build,
             loot: entry.PendingLoot,
             notes: notes,
-            deployedAtEstimated: true);
+            deployedAtEstimated: true,
+            sectorResults: entry.SectorResults);
 
         journal.Update(entry, e =>
         {
@@ -269,7 +272,8 @@ public sealed class VoyageAssembler : IDisposable
         SubBuild? build,
         List<LootLine> loot,
         string? notes,
-        bool deployedAtEstimated = false)
+        bool deployedAtEstimated = false,
+        List<SectorResult>? sectorResults = null)
     {
         var deployedUnix = new DateTimeOffset(deployedAtUtc, TimeSpan.Zero).ToUnixTimeSeconds();
 
@@ -301,8 +305,44 @@ public sealed class VoyageAssembler : IDisposable
                     BridgePartId = b.Bridge,
                 }
                 : null,
+            // Only a collection has a result.
+            SectorResults = collectedAtUtc != null && sectorResults is { Count: > 0 }
+                ? [.. sectorResults.Select(ToWire)]
+                : null,
         };
     }
+
+    private static PushSectorResult ToWire(SectorResult r) => new()
+    {
+        SectorId = r.SectorId,
+        UnlockedSectorId = r.UnlockedSectorId,
+        FavorLine = r.FavorLine,
+        ExpGained = r.ExpGained,
+        Primary = ToWire(r.Primary),
+        Additional = r.Additional is { } additional ? ToWire(additional) : null,
+        Raw = r.Raw is { } raw ? ToWire(raw) : null,
+    };
+
+    private static PushSectorRaw ToWire(SectorRaw r) => new()
+    {
+        PointRating = r.PointRating,
+        FirstExploration = r.FirstExploration,
+        AdditionalSubmarineUnlocked = r.AdditionalSubmarineUnlocked,
+        DoubleDip = r.DoubleDip,
+        DiscoveredLinePrimary = r.DiscoveredLinePrimary,
+        DiscoveredLineAdditional = r.DiscoveredLineAdditional,
+        SurveyLineAdditional = r.SurveyLineAdditional,
+        YieldLineAdditional = r.YieldLineAdditional,
+    };
+
+    private static PushSectorItem ToWire(SectorLoot l) => new()
+    {
+        ItemId = l.ItemId,
+        Quantity = l.Quantity,
+        Hq = l.Hq,
+        SurveyLine = l.SurveyLine,
+        YieldLine = l.YieldLine,
+    };
 
     /// <summary>Aggregate loot lines by (item, hq), summing quantities.</summary>
     private static List<PushLoot> AggregateLoot(List<LootLine> loot)

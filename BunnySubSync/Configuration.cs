@@ -22,9 +22,6 @@ public class FcMapping
     public bool Enabled { get; set; }
     public int? PlatformFcId { get; set; }
     public Dictionary<uint, SubLink> Subs { get; set; } = new();
-
-    // The sector unlocks last sent to the site, with the site FC they went to.
-    public string? PushedUnlocks { get; set; }
 }
 
 [Serializable]

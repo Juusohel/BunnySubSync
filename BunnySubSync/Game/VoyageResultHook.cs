@@ -66,6 +66,7 @@ public sealed unsafe class VoyageResultHook : IDisposable
 
             var sectors = new List<uint>();
             var loot = new List<LootLine>();
+            var results = new List<SectorResult>();
             foreach (var entry in data)
             {
                 if (entry.Point == 0)
@@ -75,6 +76,38 @@ public sealed unsafe class VoyageResultHook : IDisposable
                 loot.Add(new LootLine(entry.ItemIdPrimary, entry.ItemCountPrimary, entry.ItemHQPrimary));
                 if (entry.ItemIdAdditional > 0)
                     loot.Add(new LootLine(entry.ItemIdAdditional, entry.ItemCountAdditional, entry.ItemHQAdditional));
+
+                // The same entry, kept per sector: which sector gave what, and
+                // the game's surveillance / retrieval / favor verdicts for it
+                // (the fields SubmarineTracker's Loot record stores).
+                results.Add(new SectorResult(
+                    entry.Point,
+                    entry.UnlockedPoint,
+                    entry.FavorLine,
+                    entry.ExpGained,
+                    new SectorLoot(
+                        entry.ItemIdPrimary,
+                        entry.ItemCountPrimary,
+                        entry.ItemHQPrimary,
+                        entry.SurveyLinePrimary,
+                        entry.YieldLinePrimary),
+                    entry.ItemIdAdditional > 0
+                        ? new SectorLoot(
+                            entry.ItemIdAdditional,
+                            entry.ItemCountAdditional,
+                            entry.ItemHQAdditional,
+                            entry.SurveyLineAdditional,
+                            entry.YieldLineAdditional)
+                        : null,
+                    new SectorRaw(
+                        (uint)entry.PointRating,
+                        entry.FirstExploration,
+                        entry.AdditionalSubmarineUnlocked,
+                        entry.DoubleDip,
+                        entry.DiscoveredLinePrimary,
+                        entry.DiscoveredLineAdditional,
+                        entry.SurveyLineAdditional,
+                        entry.YieldLineAdditional)));
             }
 
             if (sectors.Count == 0)
@@ -92,7 +125,8 @@ public sealed unsafe class VoyageResultHook : IDisposable
                 name,
                 DateTime.UtcNow,
                 loot,
-                [.. sectors]));
+                [.. sectors],
+                SectorResults: results));
         }
         catch (Exception ex)
         {

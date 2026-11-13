@@ -29,6 +29,41 @@ public sealed record SubDispatched(
     SubBuild? Build,
     bool Simulated = false);
 
+/// <summary>One item slot of a sector's result. SurveyLine and YieldLine are
+/// the game's own verdicts for it (which surveillance and retrieval outcome
+/// it rolled), as the ids of the result window's message lines.</summary>
+public sealed record SectorLoot(uint ItemId, int Quantity, bool Hq, uint SurveyLine, uint YieldLine);
+
+/// <summary>The rest of a sector's result entry, kept raw: fields the game
+/// reports whose meaning isn't pinned down yet (or that duplicate others),
+/// stored unchanged so nothing in the result is lost. The additional slot's
+/// lines are kept here even when that slot has no item.</summary>
+public sealed record SectorRaw(
+    uint PointRating,
+    bool FirstExploration,
+    bool AdditionalSubmarineUnlocked,
+    bool DoubleDip,
+    uint DiscoveredLinePrimary,
+    uint DiscoveredLineAdditional,
+    uint SurveyLineAdditional,
+    uint YieldLineAdditional);
+
+/// <summary>What one sector of a voyage returned, exactly as the game reports
+/// it: the sector, the sector it unlocked (0 = none), the favor verdict line,
+/// the EXP it gave, its primary and optional additional item, and the rest of
+/// the entry raw (null from a producer that doesn't read it).</summary>
+public sealed record SectorResult(
+    uint SectorId,
+    uint UnlockedSectorId,
+    uint FavorLine,
+    uint ExpGained,
+    SectorLoot Primary,
+    SectorLoot? Additional,
+    SectorRaw? Raw = null);
+
+/// <summary>A collected voyage. Loot is the flat list of item lines;
+/// SectorResults keeps the same result per sector, in visit order (null from
+/// a producer that doesn't read it).</summary>
 public sealed record VoyageCompleted(
     ulong FcId,
     uint SubRegisterTime,
@@ -36,7 +71,8 @@ public sealed record VoyageCompleted(
     DateTime CollectedUtc,
     List<LootLine> Loot,
     uint[] Sectors,
-    bool Simulated = false);
+    bool Simulated = false,
+    List<SectorResult>? SectorResults = null);
 
 public sealed class VoyageEvents
 {
