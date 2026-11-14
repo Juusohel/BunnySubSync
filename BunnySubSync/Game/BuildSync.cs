@@ -23,7 +23,10 @@ namespace BunnySubSync.Game;
 ///
 /// Unlocks: sent once per session (then again only if they change). The site
 /// keeps the union of everything sent, so a resend is harmless, and it's what
-/// refills the site's copy after the FC owner resets it.
+/// refills the site's copy after the FC owner resets it. They go to the
+/// mapping's site FC; for an "(account)" mapping, to the one site FC all the
+/// workshop's linked subs are in (see <see cref="AccountFcResolver"/>), and
+/// not at all when there isn't one.
 ///
 /// A "not_found" answer (no such sub/FC, or not writable by this account) is
 /// remembered for this session only, so it isn't retried every few seconds,
@@ -38,9 +41,11 @@ public sealed class BuildSync : IDisposable
 {
     private const int CheckIntervalSeconds = 5;
     private const int BackoffCapMinutes = 30;
+    private const int InventoryRetryMinutes = 5;
 
     private readonly SubSnapshotService snapshots;
     private readonly Configuration configuration;
+    private readonly SyncService sync;
 
     // Config writes happen on the framework thread, like the Mapping tab's.
     private readonly ConcurrentQueue<Action> onFramework = new();
@@ -53,15 +58,27 @@ public sealed class BuildSync : IDisposable
     private readonly Dictionary<int, string> unlocksAnswered = [];
     private readonly HashSet<string> buildsNotFound = [];
 
+    // "(account)" mappings need the site's sub list to find their FC. The
+    // Mapping tab's copy is used when it has one; otherwise it's loaded here,
+    // once per session (framework thread, except the fetch itself).
+    private SyncResponse? ownInventory;
+    private bool inventoryWanted;
+    private int fetchingInventory; // 0/1 via Interlocked
+    private DateTime nextInventoryFetchUtc = DateTime.MinValue;
+
+    // Game FCs already told, this session, to pick a site FC for their unlocks.
+    private readonly HashSet<ulong> notedNoUnlocksFc = [];
+
     private int pushing; // 0/1 via Interlocked
     private DateTime nextCheckUtc = DateTime.MinValue;
     private int consecutiveFailures;
     private string? rejectedToken;
 
-    public BuildSync(SubSnapshotService snapshots, Configuration configuration)
+    public BuildSync(SubSnapshotService snapshots, Configuration configuration, SyncService sync)
     {
         this.snapshots = snapshots;
         this.configuration = configuration;
+        this.sync = sync;
         Plugin.Framework.Update += OnTick;
     }
 
@@ -94,11 +111,17 @@ public sealed class BuildSync : IDisposable
             if (string.IsNullOrWhiteSpace(token) || token == rejectedToken)
                 return;
 
+            var serverUrl = configuration.ServerUrl;
             var batches = CollectWork();
+            if (inventoryWanted)
+            {
+                inventoryWanted = false;
+                FetchInventory(serverUrl, token, now);
+            }
+
             if (batches.Count == 0 || Interlocked.CompareExchange(ref pushing, 1, 0) != 0)
                 return;
 
-            var serverUrl = configuration.ServerUrl;
             _ = Task.Run(() => PushAsync(serverUrl, token, batches));
         }
         catch (Exception ex)
@@ -167,14 +190,15 @@ public sealed class BuildSync : IDisposable
                 }));
             }
 
-            if (snapshots.TryGetUnlocks(fc.FcId) is { } unlocks)
+            if (snapshots.TryGetUnlocks(fc.FcId) is { } unlocks
+                && UnlocksTarget(fc, mapping, platformFcId) is { } unlocksFcId)
             {
-                var key = $"{platformFcId}:{string.Join(',', unlocks.Unlocked)}:{string.Join(',', unlocks.Explored)}";
-                if (!unlocksAnswered.TryGetValue(platformFcId, out var answered) || answered != key)
+                var key = $"{unlocksFcId}:{string.Join(',', unlocks.Unlocked)}:{string.Join(',', unlocks.Explored)}";
+                if (!unlocksAnswered.TryGetValue(unlocksFcId, out var answered) || answered != key)
                 {
                     At(unlocks.TakenUtc).Unlocks = (key, new BuildPushUnlocks
                     {
-                        FreeCompanyId = platformFcId,
+                        FreeCompanyId = unlocksFcId,
                         UnlockedSectorIds = unlocks.Unlocked,
                         ExploredSectorIds = unlocks.Explored,
                     });
@@ -185,6 +209,69 @@ public sealed class BuildSync : IDisposable
         }
 
         return batches;
+    }
+
+    /// <summary>Framework thread: the site FC this workshop's unlocks go to,
+    /// or null to send none for now.</summary>
+    private int? UnlocksTarget(SeenFc fc, FcMapping mapping, int platformFcId)
+    {
+        var linked = snapshots.SubsOf(fc.FcId)
+                              .Select(s => mapping.Subs.TryGetValue(s.RegisterTime, out var l) && l.Enabled
+                                               ? l.PlatformSubmarineId
+                                               : null)
+                              .OfType<int>()
+                              .Distinct()
+                              .ToList();
+        var inventory = sync.Last ?? ownInventory;
+        var subFcs = inventory?.Submarines
+                              .GroupBy(s => s.Id)
+                              .ToDictionary(g => g.Key, g => g.First().FreeCompanyId);
+
+        var target = AccountFcResolver.Resolve(platformFcId, linked, subFcs);
+        switch (target.Outcome)
+        {
+            case AccountFcResolver.Outcome.Send:
+                return target.FcId;
+            case AccountFcResolver.Outcome.NeedInventory:
+                inventoryWanted = true;
+                return null;
+            default:
+                if (notedNoUnlocksFc.Add(fc.FcId))
+                    Plugin.Log.Information(
+                        $"Build sync: sector unlocks for <{fc.Tag}> aren't sent: its linked subs aren't all in one site FC. Pick the FC in the Mapping tab to send them.");
+                return null;
+        }
+    }
+
+    /// <summary>Loads the site's sub list for "(account)" mappings, at most
+    /// every few minutes and only until one load succeeds.</summary>
+    private void FetchInventory(string serverUrl, string token, DateTime now)
+    {
+        if (now < nextInventoryFetchUtc || Interlocked.CompareExchange(ref fetchingInventory, 1, 0) != 0)
+            return;
+        nextInventoryFetchUtc = now.AddMinutes(InventoryRetryMinutes);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var client = new ApiClient(serverUrl, token);
+                var inventory = await client.SyncAsync().ConfigureAwait(false);
+                onFramework.Enqueue(() => ownInventory = inventory);
+            }
+            catch (UnauthorizedException)
+            {
+                // The push path reports a rejected token.
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warning(ex, $"Build sync: couldn't load the site's submarine list; retrying in {InventoryRetryMinutes} min");
+            }
+            finally
+            {
+                Volatile.Write(ref fetchingInventory, 0);
+            }
+        });
     }
 
     private async Task PushAsync(string serverUrl, string token, List<Batch> batches)
