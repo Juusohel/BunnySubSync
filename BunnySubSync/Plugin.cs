@@ -54,10 +54,10 @@ public sealed class Plugin : IDalamudPlugin
         subSnapshots = new SubSnapshotService(voyageEvents);
         voyageAssembler = new VoyageAssembler(voyageEvents, voyageJournal, subSnapshots, Configuration);
         outbox = new Outbox(voyageEvents, voyageJournal, Configuration);
-        buildSync = new BuildSync(subSnapshots, Configuration);
+        syncService = new SyncService(Configuration);
+        buildSync = new BuildSync(subSnapshots, Configuration, syncService);
         voyageResultHook = new VoyageResultHook(voyageEvents);
         voyageSimulator = new VoyageSimulator(voyageEvents);
-        syncService = new SyncService(Configuration);
         backfillService = new BackfillService(Configuration, syncService);
         gameDataUploader = new GameDataUploader(Configuration);
 
