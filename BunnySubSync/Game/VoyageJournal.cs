@@ -39,6 +39,12 @@ public sealed class JournalEntry
     public uint SubRegisterTime { get; set; }
     public string SubName { get; set; } = string.Empty;
     public DateTime DispatchedUtc { get; set; }
+
+    /// <summary>DispatchedUtc was computed back from the scheduled return
+    /// rather than observed: the dispatch was missed, or seen too late to
+    /// time it. Rows built from this entry say so (deployed_at_estimated).</summary>
+    public bool DeployedAtEstimated { get; set; }
+
     public uint ScheduledReturnUnix { get; set; }
     public uint[] Sectors { get; set; } = [];
 
@@ -118,14 +124,17 @@ public sealed class VoyageJournal
         Load();
     }
 
-    public JournalEntry AppendDispatch(SubDispatched ev)
+    /// <param name="estimatedDispatchUtc">The dispatch time to record instead
+    /// of the observed one, for a dispatch seen too late to time it.</param>
+    public JournalEntry AppendDispatch(SubDispatched ev, DateTime? estimatedDispatchUtc = null)
     {
         var entry = new JournalEntry
         {
             FcId = ev.FcId,
             SubRegisterTime = ev.SubRegisterTime,
             SubName = ev.SubName,
-            DispatchedUtc = ev.DispatchedUtc,
+            DispatchedUtc = estimatedDispatchUtc ?? ev.DispatchedUtc,
+            DeployedAtEstimated = estimatedDispatchUtc != null,
             ScheduledReturnUnix = ev.ScheduledReturnUnix,
             Sectors = ev.Sectors,
             Build = ev.Build,
