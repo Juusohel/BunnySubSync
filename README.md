@@ -64,6 +64,10 @@ so the same voyage from two members lands once).
   and the server matches it to the dispatcher's "at sea" entry and completes
   it in place with the dispatcher's original times kept. Voyages collected
   this way are tagged `[EST]` in their notes.
+- **Voyages sent out while you were away from the workshop** are only seen
+  when you come back, so the plugin doesn't use the moment it saw them as the
+  launch time. It works the launch time out from the voyage's schedule
+  instead, the same way, and tags the voyage `[EST]`.
 - **Already built your own FC?** If an in-game sub is already linked to a sub in
   one of *your own* FCs while a shared FC offers a same-named sub, the row shows
   a `(shared?)` hint. Switch the Platform FC dropdown to the shared FC to

@@ -41,8 +41,13 @@ public sealed class VoyageAssembler : IDisposable
 
     private void OnDispatched(SubDispatched ev)
     {
-        var entry = journal.AppendDispatch(ev);
-        var durationMinutes = RouteDurationMinutes(ev.ScheduledReturnUnix, ev.DispatchedUtc);
+        // A sub sent out while this player was away from the workshop (by an
+        // FC mate, or from another computer) is first seen late, and the time
+        // it was seen would make its route too short. Such a dispatch is timed
+        // from the game's schedule instead, like a missed one.
+        var estimatedUtc = EstimateLateDispatch(ev.ScheduledReturnUnix, ev.DispatchedUtc, ev.Sectors, ev.Build);
+        var entry = journal.AppendDispatch(ev, estimatedUtc);
+        var durationMinutes = RouteDurationMinutes(entry.ScheduledReturnUnix, entry.DispatchedUtc);
 
         if (configuration.PushOnDispatch)
         {
@@ -53,14 +58,22 @@ public sealed class VoyageAssembler : IDisposable
             // alone creates the full row (no coupling).
             var dispatchRow = BuildRow(
                 ev.FcId, ev.SubRegisterTime, ev.SubName,
-                deployedAtUtc: ev.DispatchedUtc,
+                deployedAtUtc: entry.DispatchedUtc,
                 collectedAtUtc: null,
                 durationMinutes: durationMinutes,
                 sectors: ev.Sectors,
                 build: ev.Build,
                 loot: [],
-                notes: ev.Simulated ? "[SIM] simulated voyage" : null);
+                notes: RowNotes(ev.Simulated, entry.DeployedAtEstimated),
+                deployedAtEstimated: entry.DeployedAtEstimated);
             journal.Update(entry, e => e.DispatchRow = dispatchRow);
+        }
+
+        if (estimatedUtc != null)
+        {
+            Plugin.Log.Information(
+                $"Dispatch of '{ev.SubName}' seen late (at {ev.DispatchedUtc:u}) — "
+                + $"dispatch time computed back from the scheduled return: {estimatedUtc:u}");
         }
 
         Plugin.Log.Information(
@@ -117,6 +130,25 @@ public sealed class VoyageAssembler : IDisposable
                 + $"{SectorMath.SectorsToRoute(ev.Sectors)} — using the result");
         }
 
+        // An entry an older version journaled can still hold the time a late
+        // sighting was seen at. Time it from the schedule here instead, unless
+        // its dispatch row already reached the server: the server holds the
+        // voyage under that row's id, and a new id would split it in two.
+        if (!entry.DeployedAtEstimated
+            && !entry.DispatchPushed
+            && EstimateLateDispatch(entry.ScheduledReturnUnix, entry.DispatchedUtc, ev.Sectors, entry.Build)
+                is { } estimatedUtc)
+        {
+            Plugin.Log.Information(
+                $"Dispatch of '{entry.SubName}' was seen late (at {entry.DispatchedUtc:u}) — "
+                + $"dispatch time computed back from the scheduled return: {estimatedUtc:u}");
+            journal.Update(entry, e =>
+            {
+                e.DispatchedUtc = estimatedUtc;
+                e.DeployedAtEstimated = true;
+            });
+        }
+
         var row = BuildRow(
             ev.FcId,
             ev.SubRegisterTime,
@@ -127,7 +159,8 @@ public sealed class VoyageAssembler : IDisposable
             sectors: ev.Sectors,
             build: entry.Build,
             loot: ev.Loot,
-            notes: ev.Simulated ? "[SIM] simulated voyage" : null,
+            notes: RowNotes(ev.Simulated, entry.DeployedAtEstimated),
+            deployedAtEstimated: entry.DeployedAtEstimated,
             sectorResults: ev.SectorResults);
 
         journal.Update(entry, e =>
@@ -252,6 +285,7 @@ public sealed class VoyageAssembler : IDisposable
         {
             e.State = OutboxState.Queued;
             e.DispatchedUtc = deployedAtUtc;
+            e.DeployedAtEstimated = true;
             e.FailureMessage = null;
             e.BuiltRow = row;
         });
@@ -362,6 +396,58 @@ public sealed class VoyageAssembler : IDisposable
                    Hq = g.Key.Hq,
                })
                .ToList();
+    }
+
+    /// <summary>
+    /// The dispatch time to record for a voyage seen leaving at
+    /// <paramref name="observedUtc"/>, when that sighting was clearly late:
+    /// the scheduled return minus the route's duration for the voyage's own
+    /// build (parts are locked and rank holds while a sub is out). Null keeps
+    /// the observed time: the sighting was on time, or there's no build or
+    /// route to compute a duration from.
+    /// </summary>
+    private static DateTime? EstimateLateDispatch(
+        uint scheduledReturnUnix, DateTime observedUtc, uint[] sectors, SubBuild? build)
+    {
+        if (scheduledReturnUnix == 0 || build is not { } b)
+            return null;
+
+        uint durationSeconds;
+        try
+        {
+            durationSeconds = SectorMath.EstimateDurationSeconds(
+                sectors, b.Rank, b.Hull, b.Stern, b.Bow, b.Bridge);
+        }
+        catch (Exception ex)
+        {
+            // A failed estimate must never cost the voyage its journal entry.
+            Plugin.Log.Warning(ex, "Couldn't compute this route's duration — keeping the observed dispatch time");
+            return null;
+        }
+
+        if (durationSeconds == 0)
+            return null;
+
+        var returnUtc = DateTimeOffset.FromUnixTimeSeconds(scheduledReturnUnix).UtcDateTime;
+        if ((returnUtc - observedUtc).TotalSeconds >= durationSeconds - LateSightingToleranceSeconds)
+            return null;
+
+        return returnUtc.AddSeconds(-durationSeconds);
+    }
+
+    // A dispatch seen as it happens reads within seconds of the duration
+    // computed for its route and build. One that reads more than this much
+    // shorter was seen late. (A PC clock running fast reads the same way, and
+    // the game's schedule is the better source then too.)
+    private const int LateSightingToleranceSeconds = 10 * 60;
+
+    private static string? RowNotes(bool simulated, bool lateSighting)
+    {
+        if (!lateSighting)
+            return simulated ? "[SIM] simulated voyage" : null;
+
+        const string note = "[EST] deployed_at estimated — dispatch seen late";
+        return simulated ? "[SIM] " + note : note;
     }
 
     private static int RouteDurationMinutes(uint scheduledReturnUnix, DateTime dispatchedUtc)

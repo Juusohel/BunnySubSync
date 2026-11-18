@@ -19,6 +19,9 @@ public sealed record LootLine(uint FfxivItemId, int Quantity, bool Hq);
 /// voyage was dispatched with.</summary>
 public sealed record SubBuild(ushort Rank, ushort Hull, ushort Stern, ushort Bow, ushort Bridge);
 
+/// <summary>A dispatch as the workshop showed it. DispatchedUtc is when it
+/// was seen: for a sub sent out while the player was away from the workshop,
+/// that's later than the real dispatch, which the assembler corrects.</summary>
 public sealed record SubDispatched(
     ulong FcId,
     uint SubRegisterTime,
