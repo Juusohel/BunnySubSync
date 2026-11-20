@@ -8,7 +8,7 @@ the website get completed in place.
 ## Install
 
 1. Dalamud Settings (`/xlsettings`) → **Experimental** → *Custom Plugin
-   Repositories* → add:
+   Repositories* → add this address and save:
    `https://raw.githubusercontent.com/Juusohel/BunnySubSync/main/repo.json`
 2. `/xlplugins` → search **Bunny Sub Sync** → install.
 
@@ -17,27 +17,32 @@ the website get completed in place.
 The plugin pushes voyages into your existing account — it can't create
 submarines for you, so set the website up first:
 
-1. Create an account at [subs.bnuuy.gg](https://subs.bnuuy.gg) and log in.
-2. **Create your submarines**: Submarines → *Add Submarine*, one per in-game
-   sub, named **exactly as in game** — same-named subs pair automatically in
-   the plugin's Mapping tab. (You can also do this during mapping: the *copy
-   name* button gives you the exact in-game name to paste into the website.)
-3. **Running subs in more than one FC?** Enable Multi-FC Mode (Profile →
-   Multi-FC Mode), add each FC under Free Companies, and assign each
-   submarine to its FC. With a single FC you can skip all of this — the
-   plugin maps your subs to the account directly.
+1. Create an account at [subs.bnuuy.gg](https://subs.bnuuy.gg), **click the
+   link in the verification email**, then log in. (No email? Check spam, or
+   try to log in and press *Resend verification email*.)
+2. **Create your submarines**: Fleet → *Add Submarine*, one per in-game sub,
+   named **exactly as in game** — same-named subs pair automatically in the
+   plugin's Mapping tab. With your first submarine the site also asks what
+   your Free Company is called. (You can also do this during mapping: the
+   *copy name* button gives you the exact in-game name to paste into the
+   website.)
+3. **Running subs in more than one FC?** After your first submarine, turn on
+   Multi-FC Mode under Settings → Free Companies, add each other FC there,
+   pick it in the Free Company selector, then add its submarines. With a
+   single FC, skip this step.
 
-Once paired (next section), voyages land under Deployments exactly like
+Once paired (next section), voyages land under Voyages exactly like
 manual entries — dispatches as "at sea", collections with loot and timings.
 
 ## Pairing (one time)
 
-1. Log into [subs.bnuuy.gg](https://subs.bnuuy.gg) → **Profile** → *In-game
-   plugin* → copy your plugin token.
+1. Log into [subs.bnuuy.gg](https://subs.bnuuy.gg) → **Settings →
+   Integrations** → *In-game plugin* → *Copy* your plugin token.
 2. In game: `/bunnysync` → **Status** tab → paste the token → *Test
    connection*. You should see "Linked as <you>".
 3. Visit your workshop once so the plugin sees your submarines, then open the
-   **Mapping** tab → *Refresh from server* → pick your platform FC, tick
+   **Mapping** tab → *Refresh from server* → pick your Free Company in the
+   *Platform FC* dropdown, tick
    **Enabled**, and check each sub linked to its website counterpart
    (same-named subs link automatically; the *copy name* button helps you
    create missing ones on the website).
@@ -45,9 +50,13 @@ manual entries — dispatches as "at sea", collections with loot and timings.
 That's it. Voyages push automatically from then on — the **Log** tab shows
 what went out. Tokens can be revoked/regenerated on the website at any time.
 
+The full guide, with the Discord bot's setup, is at
+[subs.bnuuy.gg/help](https://subs.bnuuy.gg/help).
+
 ## Shared Free Companies
 
-If someone shares their FC with you on the website (Free Companies → members),
+If someone shares their FC with you on the website (Settings → Free Companies
+→ that FC's Members card),
 it appears in the **Mapping** tab under a **"Shared with me"** divider, labeled
 with the owner's name — two identically-named FCs are otherwise
 indistinguishable in the dropdown. Pick it as your Platform FC to contribute
@@ -85,10 +94,25 @@ stats**. It's read-only and never changes anything.
 ## Backfill (optional)
 
 If you've been running **SubmarineTracker**, the **Backfill** tab can export
-its voyage history as a CSV for the website's Import dialog — map your FC
+its voyage history as a CSV for the website's importer (Analytics → Import) —
+map your FC
 first, scan, export, then upload on the website with the "this is a backfill"
 option ticked. Dispatch times in the export are estimates (the history only
 stores returns).
+
+## If something isn't working
+
+- **"Server rejected the plugin token — pushes paused"**: the token was
+  regenerated on the website. Copy it again from Settings → Integrations and
+  paste it on the Status tab.
+- **A submarine shows "— not linked —"**: the website has no submarine with
+  exactly that name in the Free Company you picked. Use *copy name*, add it on
+  the Fleet page, then *Refresh from server*.
+- **Voyages stop after a game patch**: check `/xlplugins` for an update.
+
+There is more, including the Discord bot, at
+[subs.bnuuy.gg/help](https://subs.bnuuy.gg/help#troubleshooting). Still stuck?
+Write to support@bnuuy.gg.
 
 ## Notes
 
