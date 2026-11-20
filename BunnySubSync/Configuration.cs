@@ -33,7 +33,7 @@ public class Configuration : IPluginConfiguration
 
     // Plugin configs are plaintext JSON on disk — standard for Dalamud; the
     // token only grants access to this user's sub data and is revocable from
-    // the website's Profile page.
+    // the website's Settings › Integrations page.
     public string ApiToken { get; set; } = string.Empty;
 
     public bool AutoPush { get; set; } = true;
