@@ -137,6 +137,9 @@ Write to support@bnuuy.gg.
   rest of each sector's result entry as the game reports it (such as the
   sector's rating). The loot totals are unchanged; the per-sector detail is
   kept for future loot statistics.
+- The plugin never sends your character's name, your chat or anything else
+  about your character. What the website keeps, and how to download or delete
+  it, is on its privacy page: https://subs.bnuuy.gg/privacy
 
 ## Building from source
 
