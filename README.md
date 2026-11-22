@@ -37,7 +37,10 @@ manual entries — dispatches as "at sea", collections with loot and timings.
 ## Pairing (one time)
 
 1. Log into [subs.bnuuy.gg](https://subs.bnuuy.gg) → **Settings →
-   Integrations** → *In-game plugin* → *Copy* your plugin token.
+   Integrations** → *In-game plugin* → *Reveal* (the site may ask for your
+   password), then *Copy* your plugin token. Changing or resetting your
+   password on the website replaces this token and unpairs the plugin; pair
+   again with the new one.
 2. In game: `/bunnysync` → **Status** tab → paste the token → *Test
    connection*. You should see "Linked as <you>".
 3. Visit your workshop once so the plugin sees your submarines, then open the
@@ -49,6 +52,8 @@ manual entries — dispatches as "at sea", collections with loot and timings.
 
 That's it. Voyages push automatically from then on — the **Log** tab shows
 what went out. Tokens can be revoked/regenerated on the website at any time.
+Changing or resetting your website password replaces the token as well, so
+the plugin stops pushing until you paste the new one on the Status tab.
 
 The full guide, with the Discord bot's setup, is at
 [subs.bnuuy.gg/help](https://subs.bnuuy.gg/help).
@@ -103,8 +108,9 @@ stores returns).
 ## If something isn't working
 
 - **"Server rejected the plugin token — pushes paused"**: the token was
-  regenerated on the website. Copy it again from Settings → Integrations and
-  paste it on the Status tab.
+  regenerated on the website, or your website password was changed or reset
+  (that replaces the token too). On Settings → Integrations press *Reveal*,
+  then *Copy*, and paste it on the Status tab.
 - **A submarine shows "— not linked —"**: the website has no submarine with
   exactly that name in the Free Company you picked. Use *copy name*, add it on
   the Fleet page, then *Refresh from server*.
@@ -118,7 +124,12 @@ Write to support@bnuuy.gg.
 
 - The plugin token is stored in plain text in the plugin config (standard for
   Dalamud plugins); it only grants access to your own submarine data and is
-  revocable from the website.
+  revocable from the website. Changing or resetting your website password
+  replaces it, which unpairs the plugin until you paste the new token.
+- On the website, revealing or regenerating the plugin token (*Copy* needs it
+  revealed first) asks for your password, and so does getting a link code for
+  the Discord bot. Once you've confirmed, that browser tab doesn't ask again
+  for up to 10 minutes.
 - After major game patches the plugin may need a rebuild against updated
   Dalamud/ClientStructs — if voyages stop being captured after a patch, check
   for a plugin update first.
