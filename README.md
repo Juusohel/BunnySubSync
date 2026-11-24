@@ -38,7 +38,8 @@ manual entries — dispatches as "at sea", collections with loot and timings.
 
 1. Log into [subs.bnuuy.gg](https://subs.bnuuy.gg) → **Settings →
    Integrations** → *In-game plugin* → *Reveal* (the site may ask for your
-   password), then *Copy* your plugin token. Changing or resetting your
+   password, or for a code if you've turned on two-factor sign-in), then
+   *Copy* your plugin token. Changing or resetting your
    password on the website replaces this token and unpairs the plugin; pair
    again with the new one.
 2. In game: `/bunnysync` → **Status** tab → paste the token → *Test
@@ -127,9 +128,10 @@ Write to support@bnuuy.gg.
   revocable from the website. Changing or resetting your website password
   replaces it, which unpairs the plugin until you paste the new token.
 - On the website, revealing or regenerating the plugin token (*Copy* needs it
-  revealed first) asks for your password, and so does getting a link code for
-  the Discord bot. Once you've confirmed, that browser tab doesn't ask again
-  for up to 10 minutes.
+  revealed first) asks for your password, or for a code from your
+  authenticator app if you've turned on two-factor sign-in, and so does
+  getting a link code for the Discord bot. Once you've confirmed, that browser
+  tab doesn't ask again for up to 10 minutes.
 - After major game patches the plugin may need a rebuild against updated
   Dalamud/ClientStructs — if voyages stop being captured after a patch, check
   for a plugin update first.
